@@ -51,7 +51,7 @@ Record each decision above once it's made.
 - Consolidate first. Before writing a module, find its existing implementation in the sources above.
 - No platform integration is "done" until it runs against a real account. Until then, the UI shows clearly labelled demo data and pending-integration states. Never fabricate metrics or promise virality.
 - Storyboards need camera position, angle, lens, lighting, motion and timing for every shot (the 3D and Higgsfield steps depend on them).
-- Secrets go in `.env` (gitignored). Never copy keys out of the old projects' `.env` files into code.
+- Secrets go in the root `.env` (gitignored; `.env.example` lists every key and where it's deployed). Never copy keys out of the old projects' `.env` files into code.
 - Don't carry over clutter: test scripts, logs, `tmp/`, `scratch/`, `__pycache__`, duplicate vaults.
 - Keep it small. One module working end to end beats seven half-wired.
 

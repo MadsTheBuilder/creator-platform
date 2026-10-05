@@ -6,7 +6,7 @@
     "node": ">=24"
   },
   "scripts": {
-    "start": "node index.ts"
+    "start": "node --env-file-if-exists=../.env index.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "0.131.0",
