@@ -2,19 +2,25 @@ import { useEffect, useRef, useState } from 'react';
 import { SquaresFour, TrendUp, CalendarBlank, FilmStrip, Cube, Scissors, Recycle, Plugs, MagnifyingGlass, List, Plus } from '@phosphor-icons/react';
 import { Overview } from './pages/Overview';
 import { Connections } from './pages/Connections';
+import { Storyboard } from './pages/Storyboard';
 // Modules without a route are on the roadmap (see CLAUDE.md) and render as "Soon".
 const nav=[
   {label:'Overview',icon:SquaresFour,route:'Overview'},
   {label:'Trends & News',icon:TrendUp},
   {label:'Planner',icon:CalendarBlank},
-  {label:'Storyboard',icon:FilmStrip},
+  {label:'Storyboard',icon:FilmStrip,route:'Storyboard'},
   {label:'3D Previs',icon:Cube},
   {label:'Video Edit',icon:Scissors},
   {label:'Repurpose',icon:Recycle},
   {label:'Connections',icon:Plugs,route:'Connections'},
 ];
-const routes=['Overview','Connections'];
-function readRoute(){return window.location.hash.slice(1)==='connections'?'Connections':'Overview';}
+const routes=['Overview','Storyboard','Connections'];
+const headings:Record<string,[string,string]>={
+  Overview:['Channel performance','Real numbers from the platforms you own. Nothing estimated.'],
+  Storyboard:['Script to storyboard','Paste a script and get a shot-by-shot animatic: framing, lens, camera, light and timing for every shot.'],
+  Connections:['Connections','Sign in, then connect your channels to track their performance.'],
+};
+function readRoute(){const hash=window.location.hash.slice(1);return routes.find(r=>r.toLowerCase()===hash)??'Overview';}
 export function App(){
   const [route,setRoute]=useState(readRoute),[search,setSearch]=useState(''),[menu,setMenu]=useState(false);
   const searchInput=useRef<HTMLInputElement>(null);
@@ -36,8 +42,8 @@ export function App(){
           {route==='Overview'&&<button className="button primary topbar-action" onClick={()=>navigate('Connections')}><Plus size={16} weight="bold"/><span>Connect<span className="wide-only"> channel</span></span></button>}
         </header>
         <div className="content">
-        <div className="page-heading"><h1>{route==='Overview'?'Channel performance':'Connections'}</h1><p>{route==='Overview'?'Real numbers from the platforms you own. Nothing estimated.':'Sign in, then connect your channels to track their performance.'}</p></div>
-        {route==='Overview'?<Overview search={search} onConnections={()=>navigate('Connections')}/>:<Connections/>}
+        <div className="page-heading"><h1>{headings[route][0]}</h1><p>{headings[route][1]}</p></div>
+        {route==='Overview'?<Overview search={search} onConnections={()=>navigate('Connections')}/>:route==='Storyboard'?<Storyboard onConnections={()=>navigate('Connections')}/>:<Connections/>}
         </div>
       </main>
     </div>

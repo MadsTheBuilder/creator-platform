@@ -35,8 +35,9 @@ Never edit the source folders. Copy what's needed into this repo.
 
 - **2026-10-05 — Stack: Creator_OS base.** React + TS + Vite frontend, Supabase backend (Google sign-in via Supabase Auth, Deno Edge Functions for platform OAuth, Postgres for encrypted tokens). Supabase project: `creator-os` (ref `siacpdaiovnliamhorrf`).
 - **2026-10-05 — Module 1 ported first:** sign-in, YouTube/Instagram/TikTok connect, and the metrics Overview. Nothing else from Creator_OS was brought over.
-- **2026-10-06 — Hosting: Railway (Hobby), one project, two services.** `site` serves the built frontend; `worker` is a Docker container (Node + Chrome + FFmpeg + HyperFrames 0.8.91 + Claude Agent SDK) that authors and renders compositions from a Supabase job table and writes MP4s to Supabase Storage. Supabase stays the backend. Move `site` to Cloudflare Pages if traffic grows. Railway project `creator-platform`; site live at https://site-production-a72f.up.railway.app. Deploy from repo root: `railway up frontend --path-as-root --service site`. The service var `RAILPACK_BUILD_CMD=npx vite build` skips `tsc` because the frontend tests import `supabase/`, which isn't in the upload.
-- **2026-10-06 — HyperFrames is the video engine** for storyboard animatics, animation, edits and short-form. Preview in-app with `<hyperframes-player>`; render MP4 only on export. First slice: script → shot breakdown → animatic (template: `tarun-mirzapur/red-balloon-sketch`).
+- **2026-10-06 — Hosting: Railway (Hobby), one project, two services.** `site` serves the built frontend; `worker` is a Docker container (`worker/Dockerfile`: Node 24 + HyperFrames' pinned Chrome + FFmpeg) that takes jobs from `video_jobs`: shot breakdowns via the Claude API, renders via the HyperFrames CLI, MP4s to the private `renders` bucket. Supabase stays the backend. Move `site` to Cloudflare Pages if traffic grows. Railway project `creator-platform`; site live at https://site-production-a72f.up.railway.app. Deploy from repo root: `railway up frontend --path-as-root --service site`. The service var `RAILPACK_BUILD_CMD=npx vite build` skips `tsc` because the frontend tests import `supabase/`, which isn't in the upload.
+- **2026-10-06 — HyperFrames is the video engine** for storyboard animatics, animation, edits and short-form. Preview in-app with `<hyperframes-player>`; render MP4 only on export. First slice: script → shot breakdown → animatic (template: `tarun-mirzapur/red-balloon-sketch`). Pinned to **0.8.134** everywhere: the player loads that runtime version from the CDN, so the worker renders with the same one (preview = export). Keep `@hyperframes/player` and the worker's `hyperframes` on the same version.
+- **2026-10-06 — Storyboard v1 panels are spec cards** (framing schematic + lens/angle/camera/move/light + timed audio), not art. AI images per shot come next once Higgsfield access is decided. The breakdown takes a short vision form (format/tone, method, platform, length, feel) instead of the skill's chat interview.
 
 ## Open decisions (ask before assuming)
 
@@ -58,13 +59,20 @@ Record each decision above once it's made.
 
 ```
 frontend/                 React + Vite app (run commands from here)
-  src/App.tsx             Shell + hash routing (#overview, #connections)
-  src/pages/              Overview (metrics), Connections (sign-in + connect)
+  src/App.tsx             Shell + hash routing (#overview, #storyboard, #connections)
+  src/pages/              Overview (metrics), Storyboard (script -> animatic), Connections (sign-in + connect)
   src/components/         GoogleAccount, YouTube/Social connection, per-platform overviews, ui
-  src/data/               supabase client, connector request helpers, metric math (+ tests)
+  src/data/               supabase client, connector helpers, video job queue, metric math (+ tests)
+  src/storyboard/         composition.ts: storyboard -> HyperFrames HTML + validation. Shared with the worker:
+                          no imports, erasable TypeScript only (Node runs it with type stripping)
+worker/                   Railway video worker (Node 24, runs .ts directly)
+  index.ts                job loop: claim_video_job() -> breakdown | render -> done/failed
+  breakdown.ts            Claude API shot breakdown (structured output)
+  render.ts               composition -> `hyperframes render` -> renders/<user>/<job>.mp4
+  prompts/                shot-breakdown skill adapted for the app + its reference files
 supabase/
   functions/              youtube-connector, instagram-connector, tiktok-connector, _shared
-  migrations/             connection + OAuth state tables (RLS)
+  migrations/             connection + OAuth state tables, video_jobs queue + renders bucket (RLS)
   tests/                  SQL boundary tests
 docs/                     Supabase auth + connector setup notes (from Creator_OS)
 ```
@@ -74,6 +82,8 @@ docs/                     Supabase auth + connector setup notes (from Creator_OS
 From `frontend/`: `npm run dev` (http://127.0.0.1:5173), `npm run build` (typecheck + build), `npm test` (vitest, covers frontend and Edge Function core logic).
 
 Backend: `supabase link --project-ref siacpdaiovnliamhorrf` once, then `supabase functions deploy <name>`. Server secrets (Google/TikTok/Instagram client secrets, `*_TOKEN_ENCRYPTION_KEY`, `*_APP_ORIGINS`) live in Supabase function secrets, never in `VITE_*` vars. See `supabase/functions/.env.example`.
+
+Worker: deploy from the repo root with `railway up --service worker` (service var `RAILWAY_DOCKERFILE_PATH=worker/Dockerfile`). Railway variables: `SUPABASE_URL`, `SUPABASE_SECRET_KEY` (Supabase secret / service-role key), `ANTHROPIC_API_KEY`. Logs: `railway logs --service worker`.
 
 ## Known leftovers
 

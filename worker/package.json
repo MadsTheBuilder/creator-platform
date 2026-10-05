@@ -1,0 +1,17 @@
+{
+  "name": "creator-platform-worker",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "start": "node index.ts"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "0.131.0",
+    "@supabase/supabase-js": "2.117.2",
+    "gsap": "3.14.2",
+    "hyperframes": "0.8.134"
+  }
+}
