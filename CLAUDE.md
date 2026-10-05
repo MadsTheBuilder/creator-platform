@@ -35,9 +35,13 @@ Never edit the source folders. Copy what's needed into this repo.
 
 - **2026-10-05 — Stack: Creator_OS base.** React + TS + Vite frontend, Supabase backend (Google sign-in via Supabase Auth, Deno Edge Functions for platform OAuth, Postgres for encrypted tokens). Supabase project: `creator-os` (ref `siacpdaiovnliamhorrf`).
 - **2026-10-05 — Module 1 ported first:** sign-in, YouTube/Instagram/TikTok connect, and the metrics Overview. Nothing else from Creator_OS was brought over.
-- **2026-10-06 — Hosting: Railway (Hobby), one project, two services.** `site` serves the built frontend; `worker` is a Docker container (`worker/Dockerfile`: Node 24 + HyperFrames' pinned Chrome + FFmpeg) that takes jobs from `video_jobs`: shot breakdowns via the Claude API, renders via the HyperFrames CLI, MP4s to the private `renders` bucket. Supabase stays the backend. Move `site` to Cloudflare Pages if traffic grows. Railway project `creator-platform`; site live at https://site-production-a72f.up.railway.app. Deploy from repo root: `railway up frontend --path-as-root --service site`. The service var `RAILPACK_BUILD_CMD=npx vite build` skips `tsc` because the frontend tests import `supabase/`, which isn't in the upload.
-- **2026-10-06 — HyperFrames is the video engine** for storyboard animatics, animation, edits and short-form. Preview in-app with `<hyperframes-player>`; render MP4 only on export. First slice: script → shot breakdown → animatic (template: `tarun-mirzapur/red-balloon-sketch`). Pinned to **0.8.134** everywhere: the player loads that runtime version from the CDN, so the worker renders with the same one (preview = export). Keep `@hyperframes/player` and the worker's `hyperframes` on the same version.
+- **2026-10-06 — Hosting: Railway (Hobby), one project, two services.** `site` serves the built frontend; `worker` is a Docker container (`worker/Dockerfile`: Node 24 + HyperFrames' pinned Chrome + FFmpeg) that takes jobs from `video_jobs`: shot breakdowns via the Claude API. (Its old render job, which put MP4s in the private `renders` bucket, is gone: exports happen in the Studio editor. The bucket keeps earlier renders.) Supabase stays the backend. Move `site` to Cloudflare Pages if traffic grows. Railway project `creator-platform`; site live at https://site-production-a72f.up.railway.app. Deploy from repo root: `railway up frontend --path-as-root --service site`. The service var `RAILPACK_BUILD_CMD=npx vite build` skips `tsc` because the frontend tests import `supabase/`, which isn't in the upload.
+- **2026-10-06 — HyperFrames is the video engine** for storyboard animatics, animation, edits and short-form. The shot breakdown becomes an animatic composition (template: `tarun-mirzapur/red-balloon-sketch`) that opens in the HyperFrames Studio editor, which handles preview, editing and export. Pinned to **0.8.134** (the worker's `hyperframes` CLI provides both the Studio and rendering). The earlier in-page `<hyperframes-player>` preview and the worker's render job were removed when the Studio arrived.
 - **2026-10-06 — Storyboard v1 panels are spec cards** (framing schematic + lens/angle/camera/move/light + timed audio), not art. AI images per shot come next once Higgsfield access is decided. The breakdown takes a short vision form (format/tone, method, platform, length, feel) instead of the skill's chat interview.
+
+- **2026-10-06 — Playground replaces the Storyboard nav item.** It's project-based (`projects` table; jobs carry `project_id`), with its own steel-blue dock (`#2C5F8A`, a new brand colour: Creator_OS had kept blue to chart accents) and four steps: Script (paste/upload/generate), Shot breakdown, 3D visual, Video edit.
+- **2026-10-06 — Full HyperFrames Studio, served by the app service.** The worker becomes one Railway service: built site + Studio API + job loop, with a volume at `/data` for project folders (`/data/projects/<user>/<project>`). `worker/server.ts` reuses the CLI's own `hyperframes preview` server (`createStudioServer`, deep-imported from the pinned CLI) per project behind Supabase-cookie auth and a project-ownership check. The editor loads in a same-origin iframe at `/studio/<project>/`. The static `site` service retires once this is deployed. No new keys: HeyGen/Gemini/Figma keys only unlock optional media-use, capture and Figma import.
+- **2026-10-06 — Blender runs on the creator's PC, never on our server.** A paired helper (`bridge/`, standard-library Python) claims `blockout` jobs over `/bridge/*` with a device key (only its hash is stored in `bridge_devices`), runs `blockout.py` headless, and uploads the preview MP4, stills and `.blend` into the project folder.
 
 ## Open decisions (ask before assuming)
 
@@ -59,20 +63,23 @@ Record each decision above once it's made.
 
 ```
 frontend/                 React + Vite app (run commands from here)
-  src/App.tsx             Shell + hash routing (#overview, #storyboard, #connections)
-  src/pages/              Overview (metrics), Storyboard (script -> animatic), Connections (sign-in + connect)
+  src/App.tsx             Shell + hash routing (#overview, #connections, #playground[/<project>/<step>]) + Playground dock
+  src/pages/              Overview (metrics), Playground (projects), Connections (sign-in + connect)
+  src/pages/playground/   Script, Shots (breakdown -> animatic), Visual3D (references + blockouts), Edit (Studio iframe)
   src/components/         GoogleAccount, YouTube/Social connection, per-platform overviews, ui
-  src/data/               supabase client, connector helpers, video job queue, metric math (+ tests)
-  src/storyboard/         composition.ts: storyboard -> HyperFrames HTML + validation. Shared with the worker:
+  src/data/               supabase client, connector helpers, video job queue, projects, app-server session, metric math (+ tests)
+  src/storyboard/         composition.ts: storyboard -> HyperFrames HTML + validation (seeds the editor). Shared with the worker:
                           no imports, erasable TypeScript only (Node runs it with type stripping)
-worker/                   Railway video worker (Node 24, runs .ts directly)
-  index.ts                job loop: claim_video_job() -> breakdown | render -> done/failed
+worker/                   Railway app service (Node 24, runs .ts directly)
+  index.ts                starts server.ts + the job loop: claim_video_job() -> breakdown | script -> done/failed
+  server.ts               site, Supabase-cookie session, per-project HyperFrames Studio, references, Blender bridge API
   breakdown.ts            Claude API shot breakdown (structured output)
-  render.ts               composition -> `hyperframes render` -> renders/<user>/<job>.mp4
+  script.ts               Claude API script generation (prompts/script.md, from Content Hub V2)
   prompts/                shot-breakdown skill adapted for the app + its reference files
+bridge/                   Blender helper the creator downloads (zip built per device by server.ts): creator_bridge.py, blockout.py
 supabase/
   functions/              youtube-connector, instagram-connector, tiktok-connector, _shared
-  migrations/             connection + OAuth state tables, video_jobs queue + renders bucket (RLS)
+  migrations/             connection + OAuth state tables, video_jobs queue + renders bucket, projects + bridge_devices (RLS)
   tests/                  SQL boundary tests
 docs/                     Supabase auth + connector setup notes (from Creator_OS)
 ```
@@ -83,8 +90,11 @@ From `frontend/`: `npm run dev` (http://127.0.0.1:5173), `npm run build` (typech
 
 Backend: `supabase link --project-ref siacpdaiovnliamhorrf` once, then `supabase functions deploy <name>`. Server secrets (Google/TikTok/Instagram client secrets, `*_TOKEN_ENCRYPTION_KEY`, `*_APP_ORIGINS`) live in Supabase function secrets, never in `VITE_*` vars. See `supabase/functions/.env.example`.
 
-Worker: deploy from the repo root with `railway up --service worker` (service var `RAILWAY_DOCKERFILE_PATH=worker/Dockerfile`). Railway variables: `SUPABASE_URL`, `SUPABASE_SECRET_KEY` (Supabase secret / service-role key), `ANTHROPIC_API_KEY`. Logs: `railway logs --service worker`.
+App service (worker): deploy from the repo root with `railway up --service worker` (service var `RAILWAY_DOCKERFILE_PATH=worker/Dockerfile`). Railway variables: `SUPABASE_URL`, `SUPABASE_SECRET_KEY` (Supabase secret / service-role key), `ANTHROPIC_API_KEY`, and `VITE_SUPABASE_URL` + `VITE_SUPABASE_PUBLISHABLE_KEY` (build args for the site). Needs a volume mounted at `/data` and a public domain. Logs: `railway logs --service worker`.
+
+Local: `npm start` in `worker/` runs the app server on :8787 and the job loop against the live queue; `npm run dev` in `frontend/` proxies `/api`, `/studio` and the Studio's assets to it.
 
 ## Known leftovers
 
-`styles.css` / `workspace.css` still contain styles for Creator_OS screens that weren't ported (studio, library, projects). Prune when touching them.
+- `worker/server.ts` deep-imports `hyperframes/dist/studioServer-PXNJXHMV.js`. Bump that file name whenever the pinned HyperFrames version changes.
+- Railway volumes have no automatic backup. Project folders (edits, footage, references, blockouts) live only on `/data`.

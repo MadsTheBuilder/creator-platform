@@ -30,3 +30,6 @@ generated-media/
 Thumbs.db
 
 # Add stack-specific rules after the stack decision. Source examples and contracts remain tracked.
+
+# App server project files (local dev)
+worker/data/

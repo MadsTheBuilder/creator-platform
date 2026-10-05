@@ -1,38 +1,55 @@
-import { useEffect, useRef, useState } from 'react';
-import { SquaresFour, TrendUp, CalendarBlank, FilmStrip, Cube, Scissors, Recycle, Plugs, MagnifyingGlass, List, Plus } from '@phosphor-icons/react';
+import { useEffect, useRef, useState, type CSSProperties } from 'react';
+import { SquaresFour, TrendUp, CalendarBlank, Sparkle, Recycle, Plugs, MagnifyingGlass, List, Plus, ArrowLeft, FileText, FilmStrip, Cube, Scissors, type Icon } from '@phosphor-icons/react';
 import { Overview } from './pages/Overview';
 import { Connections } from './pages/Connections';
-import { Storyboard } from './pages/Storyboard';
+import { Playground, STEPS, type Step } from './pages/Playground';
 // Modules without a route are on the roadmap (see CLAUDE.md) and render as "Soon".
 const nav=[
   {label:'Overview',icon:SquaresFour,route:'Overview'},
   {label:'Trends & News',icon:TrendUp},
   {label:'Planner',icon:CalendarBlank},
-  {label:'Storyboard',icon:FilmStrip,route:'Storyboard'},
-  {label:'3D Previs',icon:Cube},
-  {label:'Video Edit',icon:Scissors},
+  {label:'Playground',icon:Sparkle,route:'Playground'},
   {label:'Repurpose',icon:Recycle},
   {label:'Connections',icon:Plugs,route:'Connections'},
 ];
-const routes=['Overview','Storyboard','Connections'];
+const stepIcons:Record<Step,Icon>={script:FileText,shots:FilmStrip,'3d':Cube,edit:Scissors};
+const routes=['Overview','Playground','Connections'];
 const headings:Record<string,[string,string]>={
   Overview:['Channel performance','Real numbers from the platforms you own. Nothing estimated.'],
-  Storyboard:['Script to storyboard','Paste a script and get a shot-by-shot animatic: framing, lens, camera, light and timing for every shot.'],
   Connections:['Connections','Sign in, then connect your channels to track their performance.'],
 };
-function readRoute(){const hash=window.location.hash.slice(1);return routes.find(r=>r.toLowerCase()===hash)??'Overview';}
+type Location={route:string;project?:string;step:Step};
+// #overview, #connections, #playground, #playground/<project id>/<step>
+function readRoute():Location{
+  const [head,project,step]=window.location.hash.slice(1).split('/');
+  const route=routes.find(r=>r.toLowerCase()===head)??'Overview';
+  return {route,project:route==='Playground'&&project?project:undefined,step:STEPS.find(s=>s.step===step)?.step??'script'};
+}
+const toHash=(l:Location)=>l.route==='Playground'&&l.project?`playground/${l.project}/${l.step}`:l.route.toLowerCase();
 export function App(){
-  const [route,setRoute]=useState(readRoute),[search,setSearch]=useState(''),[menu,setMenu]=useState(false);
+  const [loc,setLoc]=useState(readRoute),[search,setSearch]=useState(''),[menu,setMenu]=useState(false);
+  const {route}=loc,playground=route==='Playground';
   const searchInput=useRef<HTMLInputElement>(null);
-  useEffect(()=>{const change=()=>{setRoute(readRoute());setMenu(false);setSearch('');};window.addEventListener('hashchange',change);return()=>window.removeEventListener('hashchange',change);},[]);
+  useEffect(()=>{const change=()=>{setLoc(readRoute());setMenu(false);setSearch('');};window.addEventListener('hashchange',change);return()=>window.removeEventListener('hashchange',change);},[]);
   useEffect(()=>{if(!menu)return;const trigger=document.querySelector<HTMLButtonElement>('.menu-button');const items=Array.from(document.querySelectorAll<HTMLElement>('.sidebar a,.sidebar button'));items[0]?.focus();function key(event:KeyboardEvent){if(event.key==='Escape'){setMenu(false);return;}if(event.key==='Tab'){const first=items[0],last=items[items.length-1];if(event.shiftKey&&document.activeElement===first){event.preventDefault();last?.focus();}else if(!event.shiftKey&&document.activeElement===last){event.preventDefault();first?.focus();}}}document.addEventListener('keydown',key);return()=>{document.removeEventListener('keydown',key);trigger?.focus();};},[menu]);
   useEffect(()=>{function key(event:KeyboardEvent){if((event.metaKey||event.ctrlKey)&&event.key.toLowerCase()==='k'&&searchInput.current){event.preventDefault();searchInput.current.focus();}}document.addEventListener('keydown',key);return()=>document.removeEventListener('keydown',key);},[]);
-  function navigate(next:string){window.location.hash=next.toLowerCase();setRoute(next);setMenu(false);setSearch('');}
+  function go(next:Location){window.location.hash=toHash(next);setLoc(next);setMenu(false);setSearch('');}
+  const navigate=(next:string)=>go({route:next,step:'script'});
+  const openProject=(project?:string,step:Step='script')=>go({route:'Playground',project,step});
+  // Playground swaps the dock for its own: back, then one icon per step of the open project.
+  const dock=playground
+    ?<nav aria-label="Playground" key="playground">
+      <button className="nav-link" style={{'--i':0} as CSSProperties} onClick={()=>loc.project?openProject():navigate('Overview')} aria-label={loc.project?'All projects':'Leave Playground'}><ArrowLeft size={21}/><span className="dock-tip" aria-hidden>{loc.project?'All projects':'Leave Playground'}</span></button>
+      {STEPS.map((s,i)=>{const I=stepIcons[s.step],on=!!loc.project&&loc.step===s.step;return loc.project
+        ?<button key={s.step} className={`nav-link ${on?'active':''}`} style={{'--i':i+1} as CSSProperties} onClick={()=>openProject(loc.project,s.step)} aria-current={on?'page':undefined} aria-label={s.label}><I size={21} weight={on?'fill':'regular'}/><span className="dock-tip" aria-hidden>{s.label}</span></button>
+        :<button key={s.step} className="nav-link soon" style={{'--i':i+1} as CSSProperties} aria-disabled="true" aria-label={`${s.label}, open a project first`}><I size={21}/><span className="dock-tip" aria-hidden>{s.label}<em>Open a project</em></span></button>;})}
+    </nav>
+    :<nav aria-label="Workspace" key="workspace">{nav.map((n,i)=>n.route
+      ?<button key={n.label} className={`nav-link ${route===n.route?'active':''}`} style={{'--i':i} as CSSProperties} onClick={()=>navigate(n.route)} aria-current={route===n.route?'page':undefined} aria-label={n.label}><n.icon size={21} weight={route===n.route?'fill':'regular'}/><span className="dock-tip" aria-hidden>{n.label}</span></button>
+      :<button key={n.label} className="nav-link soon" style={{'--i':i} as CSSProperties} aria-disabled="true" aria-label={`${n.label}, coming soon`}><n.icon size={21}/><span className="dock-tip" aria-hidden>{n.label}<em>Soon</em></span></button>)}</nav>;
   return <div className="app-shell"><a href="#main" className="skip-link" onClick={e=>{e.preventDefault();document.getElementById('main')?.focus();}}>Skip to content</a>{menu&&<button className="nav-backdrop" aria-label="Close navigation" onClick={()=>setMenu(false)}/>}
-    <div className="frame">
-      <aside className={`sidebar ${menu?'open':''}`}><nav aria-label="Workspace">{nav.map(n=>n.route
-        ?<button key={n.label} className={`nav-link ${route===n.route?'active':''}`} onClick={()=>navigate(n.route)} aria-current={route===n.route?'page':undefined} aria-label={n.label}><n.icon size={21} weight={route===n.route?'fill':'regular'}/><span className="dock-tip" aria-hidden>{n.label}</span></button>
-        :<button key={n.label} className="nav-link soon" aria-disabled="true" aria-label={`${n.label}, coming soon`}><n.icon size={21}/><span className="dock-tip" aria-hidden>{n.label}<em>Soon</em></span></button>)}</nav></aside>
+    <div className={`frame ${playground?'playground':''}`}>
+      <aside className={`sidebar ${menu?'open':''} ${playground?'playground':''}`}><span className="sidebar-fill" aria-hidden/>{dock}</aside>
       <main id="main" className="main" tabIndex={-1} inert={menu}>
         <header className="topbar">
           <button className="icon-button menu-button" aria-label="Toggle navigation" aria-expanded={menu} onClick={()=>setMenu(!menu)}><List size={20}/></button>
@@ -41,9 +58,11 @@ export function App(){
           {route==='Overview'&&<label className="search"><MagnifyingGlass size={16}/><input ref={searchInput} aria-label="Search content" placeholder="Search content" value={search} onChange={e=>setSearch(e.target.value)}/><kbd aria-hidden>Ctrl K</kbd></label>}
           {route==='Overview'&&<button className="button primary topbar-action" onClick={()=>navigate('Connections')}><Plus size={16} weight="bold"/><span>Connect<span className="wide-only"> channel</span></span></button>}
         </header>
-        <div className="content">
-        <div className="page-heading"><h1>{headings[route][0]}</h1><p>{headings[route][1]}</p></div>
-        {route==='Overview'?<Overview search={search} onConnections={()=>navigate('Connections')}/>:route==='Storyboard'?<Storyboard onConnections={()=>navigate('Connections')}/>:<Connections/>}
+        <div className={`content ${playground&&loc.project&&loc.step==='edit'?'content-editor':''}`}>
+        {!playground&&<div className="page-heading"><h1>{headings[route][0]}</h1><p>{headings[route][1]}</p></div>}
+        {route==='Overview'?<Overview search={search} onConnections={()=>navigate('Connections')}/>
+          :playground?<Playground projectId={loc.project} step={loc.step} onOpen={openProject} onConnections={()=>navigate('Connections')}/>
+          :<Connections/>}
         </div>
       </main>
     </div>

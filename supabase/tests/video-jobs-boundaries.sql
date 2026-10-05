@@ -4,7 +4,7 @@ declare r text;
 begin
   foreach r in array array['anon','authenticated'] loop
     if has_table_privilege(r,'public.video_jobs','UPDATE') or has_table_privilege(r,'public.video_jobs','DELETE')
-      or has_function_privilege(r,'public.claim_video_job()','EXECUTE') then
+      or has_function_privilege(r,'public.claim_video_job(text[],uuid)','EXECUTE') then
       raise exception 'Browser role can change or claim video jobs';
     end if;
   end loop;
