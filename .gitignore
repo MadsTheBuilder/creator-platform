@@ -1,0 +1,32 @@
+# Credentials and local overrides
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+secrets/
+supabase/.temp/
+supabase/.branches/
+
+# Runtime dependencies and build artifacts
+node_modules/
+.next/
+dist/
+build/
+.venv/
+__pycache__/
+*.pyc
+
+# Local execution state and generated media
+.cache/
+coverage/
+logs/
+storage/
+generated-media/
+*.blend1
+
+# OS/editor files
+.DS_Store
+Thumbs.db
+
+# Add stack-specific rules after the stack decision. Source examples and contracts remain tracked.
