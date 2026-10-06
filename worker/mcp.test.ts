@@ -99,6 +99,7 @@ test('a saved breakdown is what the site reads', async () => {
 
   const saved = await call(client, 'save_breakdown', { project_id: MINE, vision, storyboard, request_id: 'once' });
   assert.equal(saved.isError, undefined);
+  assert.match(saved.structuredContent.message, /seed_composition/);
   const again = await call(client, 'save_breakdown', { project_id: MINE, vision, storyboard, request_id: 'once' });
   assert.equal(again.structuredContent.breakdown_id, saved.structuredContent.breakdown_id);
   assert.equal(tables.video_jobs.filter(j => j.kind === 'breakdown').length, 1);
@@ -138,7 +139,7 @@ test('guides come from the server', async () => {
   const client = await connect('modern');
   for (const topic of ['breakdown', 'script', 'composition', 'blockout']) {
     const guide = await call(client, 'get_guide', { topic });
-    assert.ok(guide.content[0].text.length > 500, topic);
+    assert.ok(guide.structuredContent.guide.length > 500, topic); // Claude Code reads structuredContent only
   }
   await client.close();
 });

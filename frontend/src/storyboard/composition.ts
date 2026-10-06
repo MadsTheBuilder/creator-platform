@@ -110,8 +110,8 @@ export function buildComposition(sb: Storyboard, gsapSrc = GSAP_CDN): string {
     <div class="sky" style="height:${hz * 100}%"></div>
     ${gfx ? '<div class="gfx">GRAPHICS</div>' : `<svg class="fig" viewBox="0 0 38 100" style="left:${fx}px;top:${fy}px;width:${fw}px;height:${fh}px"><circle cx="19" cy="12" r="10"/><path d="M4 100 L4 40 Q4 26 19 26 Q34 26 34 40 L34 100 Z"/></svg>`}
   </div></div><div class="desc">${esc(shot.description)}</div></div>
-  <dl class="specs">${rows.map(([k, v]) => `<div class="row"><dt>${k}</dt><dd>${esc(v || '—')}</dd></div>`).join('')}</dl>
-  <div class="cap">${who ? `<b>${esc(who)}</b>` : ''}<span>${esc(line)}</span></div>
+  <dl class="specs">${rows.map(([k, v]) => `<div class="row"><dt>${k}</dt><dd data-layout-allow-overflow data-layout-allow-overlap>${esc(v || '—')}</dd></div>`).join('')}</dl>
+  <div class="cap">${who ? `<b>${esc(who)}</b>` : ''}<span data-layout-allow-overflow>${esc(line)}</span></div>
 </div>`);
     data.push({ id, start: t, dur: shot.duration, ...cameraMove(shot.movement) });
     t += shot.duration;
