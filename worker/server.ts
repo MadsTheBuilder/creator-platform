@@ -253,7 +253,9 @@ export function startServer(db: SupabaseClient, port: number) {
     if (!res.headers.get('content-type')?.includes('text/html')) return res;
     // Open in the dark theme to match the app, unless the creator picked one.
     const dark = `<script>try{var k="hf-studio-ui-preferences",p=JSON.parse(localStorage.getItem(k)||"{}");if(!p.theme){p.theme="dark";localStorage.setItem(k,JSON.stringify(p))}}catch(e){}</script>`;
-    return c.html((await res.text()).replace('<head>', `<head>${dark}`), 200, { 'Cache-Control': 'no-cache' });
+    // Our skin (frontend/public/studio-theme.css) goes last so it overrides the Studio's tokens.
+    const html = (await res.text()).replace('<head>', `<head>${dark}`).replace('</head>', '<link rel="stylesheet" href="/studio-theme.css"></head>');
+    return c.html(html, 200, { 'Cache-Control': 'no-cache' });
   });
 
   // ---- The creator's PC (creator_bridge.py), signed with its device key.

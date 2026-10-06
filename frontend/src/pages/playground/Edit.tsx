@@ -20,6 +20,6 @@ export function Edit({ project }: { project: Project }) {
   if (!ready) return <p role="status">Opening the editor…</p>;
   return <>
     <div className="editor-narrow"><Notice>The editor needs a screen at least 1024 px wide. Open this project on a laptop or desktop.</Notice></div>
-    <iframe className="studio-frame glass" title={`HyperFrames editor: ${project.name}`} src={`/studio/${project.id}/#project/${project.id}`} allow="autoplay; clipboard-read; clipboard-write; fullscreen"/>
+    <iframe className="studio-frame" title={`HyperFrames editor: ${project.name}`} src={`/studio/${project.id}/#project/${project.id}`} allow="autoplay; clipboard-read; clipboard-write; fullscreen"/>
   </>;
 }

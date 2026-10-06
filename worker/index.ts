@@ -7,8 +7,8 @@ import { script } from './script.ts';
 import { startServer } from './server.ts';
 
 const { SUPABASE_URL, SUPABASE_SECRET_KEY } = process.env;
-if (!SUPABASE_URL || !SUPABASE_SECRET_KEY || !process.env.ANTHROPIC_API_KEY) {
-  throw new Error('Set SUPABASE_URL, SUPABASE_SECRET_KEY and ANTHROPIC_API_KEY.');
+if (!SUPABASE_URL || !SUPABASE_SECRET_KEY || !(process.env.ANTHROPIC_API_KEY || process.env.ANTHROPIC_AUTH_TOKEN)) {
+  throw new Error('Set SUPABASE_URL, SUPABASE_SECRET_KEY and ANTHROPIC_API_KEY (or ANTHROPIC_AUTH_TOKEN).');
 }
 const db = createClient(SUPABASE_URL, SUPABASE_SECRET_KEY, { auth: { persistSession: false, autoRefreshToken: false } });
 const claude = new Anthropic();

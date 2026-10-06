@@ -65,10 +65,10 @@ export function Playground({ projectId, step, onOpen, onConnections }: { project
   if (projectId) {
     if (!project) return error ? <p role="alert">{error}</p> : <p role="status">Opening project…</p>;
     return <>
-      <div className="page-heading playground-heading">
+      {step !== 'edit' && <div className="page-heading playground-heading">
         <div><p className="eyebrow">{project.name}</p><h1>{current.label}</h1><p>{current.blurb}</p></div>
         <Button onClick={() => setDialog({ mode: 'rename', project })}><PencilSimple size={16}/>Rename</Button>
-      </div>
+      </div>}
       {step === 'script' ? <Script project={project} onSaved={setProject} onShots={() => onOpen(project.id, 'shots')}/>
         : step === 'shots' ? <Shots project={project} onScript={() => onOpen(project.id, 'script')} onEdit={() => onOpen(project.id, 'edit')}/>
         : step === '3d' ? <Visual3D project={project} onShots={() => onOpen(project.id, 'shots')}/>

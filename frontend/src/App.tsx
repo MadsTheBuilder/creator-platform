@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type CSSProperties } from 'react';
-import { SquaresFour, TrendUp, CalendarBlank, Sparkle, Recycle, Plugs, MagnifyingGlass, List, Plus, ArrowLeft, FileText, FilmStrip, Cube, Scissors, type Icon } from '@phosphor-icons/react';
+import { SquaresFour, TrendUp, CalendarBlank, Sparkle, Recycle, Plugs, MagnifyingGlass, List, Plus, ArrowLeft, FileText, FilmStrip, Cube, Scissors, VideoCamera, type Icon } from '@phosphor-icons/react';
 import { Overview } from './pages/Overview';
 import { Connections } from './pages/Connections';
 import { Playground, STEPS, type Step } from './pages/Playground';
@@ -29,6 +29,7 @@ const toHash=(l:Location)=>l.route==='Playground'&&l.project?`playground/${l.pro
 export function App(){
   const [loc,setLoc]=useState(readRoute),[search,setSearch]=useState(''),[menu,setMenu]=useState(false);
   const {route}=loc,playground=route==='Playground';
+  const editing=playground&&!!loc.project&&loc.step==='edit';
   const searchInput=useRef<HTMLInputElement>(null);
   useEffect(()=>{const change=()=>{setLoc(readRoute());setMenu(false);setSearch('');};window.addEventListener('hashchange',change);return()=>window.removeEventListener('hashchange',change);},[]);
   useEffect(()=>{if(!menu)return;const trigger=document.querySelector<HTMLButtonElement>('.menu-button');const items=Array.from(document.querySelectorAll<HTMLElement>('.sidebar a,.sidebar button'));items[0]?.focus();function key(event:KeyboardEvent){if(event.key==='Escape'){setMenu(false);return;}if(event.key==='Tab'){const first=items[0],last=items[items.length-1];if(event.shiftKey&&document.activeElement===first){event.preventDefault();last?.focus();}else if(!event.shiftKey&&document.activeElement===last){event.preventDefault();first?.focus();}}}document.addEventListener('keydown',key);return()=>{document.removeEventListener('keydown',key);trigger?.focus();};},[menu]);
@@ -48,17 +49,16 @@ export function App(){
       ?<button key={n.label} className={`nav-link ${route===n.route?'active':''}`} style={{'--i':i} as CSSProperties} onClick={()=>navigate(n.route)} aria-current={route===n.route?'page':undefined} aria-label={n.label}><n.icon size={21} weight={route===n.route?'fill':'regular'}/><span className="dock-tip" aria-hidden>{n.label}</span></button>
       :<button key={n.label} className="nav-link soon" style={{'--i':i} as CSSProperties} aria-disabled="true" aria-label={`${n.label}, coming soon`}><n.icon size={21}/><span className="dock-tip" aria-hidden>{n.label}<em>Soon</em></span></button>)}</nav>;
   return <div className="app-shell"><a href="#main" className="skip-link" onClick={e=>{e.preventDefault();document.getElementById('main')?.focus();}}>Skip to content</a>{menu&&<button className="nav-backdrop" aria-label="Close navigation" onClick={()=>setMenu(false)}/>}
-    <div className={`frame ${playground?'playground':''}`}>
+    <div className={`frame ${playground?'playground':''} ${editing?'editing':''}`}>
       <aside className={`sidebar ${menu?'open':''} ${playground?'playground':''}`}><span className="sidebar-fill" aria-hidden/>{dock}</aside>
       <main id="main" className="main" tabIndex={-1} inert={menu}>
         <header className="topbar">
           <button className="icon-button menu-button" aria-label="Toggle navigation" aria-expanded={menu} onClick={()=>setMenu(!menu)}><List size={20}/></button>
-          <a href="#overview" className="brand" onClick={e=>{e.preventDefault();navigate('Overview');}}><i aria-hidden/>Content Engine</a>
-          <nav className="route-pills" aria-label="Sections">{routes.map(r=><button key={r} className={route===r?'active':''} aria-current={route===r?'page':undefined} onClick={()=>navigate(r)}>{r}</button>)}</nav>
+          <a href="#overview" className="brand" onClick={e=>{e.preventDefault();navigate('Overview');}}><VideoCamera size={18} weight="fill" aria-hidden/>Content Engine</a>
           {route==='Overview'&&<label className="search"><MagnifyingGlass size={16}/><input ref={searchInput} aria-label="Search content" placeholder="Search content" value={search} onChange={e=>setSearch(e.target.value)}/><kbd aria-hidden>Ctrl K</kbd></label>}
           {route==='Overview'&&<button className="button primary topbar-action" onClick={()=>navigate('Connections')}><Plus size={16} weight="bold"/><span>Connect<span className="wide-only"> channel</span></span></button>}
         </header>
-        <div className={`content ${playground&&loc.project&&loc.step==='edit'?'content-editor':''}`}>
+        <div className={`content ${editing?'content-editor':''}`}>
         {!playground&&<div className="page-heading"><h1>{headings[route][0]}</h1><p>{headings[route][1]}</p></div>}
         {route==='Overview'?<Overview search={search} onConnections={()=>navigate('Connections')}/>
           :playground?<Playground projectId={loc.project} step={loc.step} onOpen={openProject} onConnections={()=>navigate('Connections')}/>

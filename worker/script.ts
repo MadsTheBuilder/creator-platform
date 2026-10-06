@@ -15,7 +15,7 @@ export async function script(client: Anthropic, input: { idea?: unknown; platfor
   if (!Number.isInteger(length) || length < 15 || length > 1800) throw new JobError('Pick a length between 15 seconds and 30 minutes.');
 
   const message = await client.messages.stream({
-    model: 'claude-opus-5-5',
+    model: process.env.CLAUDE_MODEL || 'claude-opus-5-5',
     max_tokens: 32000,
     thinking: { type: 'adaptive' },
     output_config: { effort: 'medium', format: { type: 'json_schema', schema: SCHEMA } },

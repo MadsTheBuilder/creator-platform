@@ -38,10 +38,10 @@ export async function breakdown(client: Anthropic, input: { script?: unknown; vi
     `- How it should feel: ${v.feel || 'not given'}`,
   ].join('\n');
   const stream = client.beta.messages.stream({
-    model: 'claude-opus-5-5',
+    model: process.env.CLAUDE_MODEL || 'claude-opus-5-5',
     max_tokens: 64000,
-    betas: ['server-side-fallback-2026-07-01'],
-    fallbacks: 'default',
+    // Anthropic-only fallback; proxies like OpenRouter reject it.
+    ...(process.env.ANTHROPIC_BASE_URL ? {} : { betas: ['server-side-fallback-2026-07-01'], fallbacks: 'default' as const }),
     thinking: { type: 'adaptive' },
     output_config: { effort: 'high', format: { type: 'json_schema', schema: SCHEMA } },
     system: [{ type: 'text', text: SYSTEM, cache_control: { type: 'ephemeral' } }],

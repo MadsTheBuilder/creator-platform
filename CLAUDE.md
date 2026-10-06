@@ -42,6 +42,8 @@ Never edit the source folders. Copy what's needed into this repo.
 - **2026-10-06 — Playground replaces the Storyboard nav item.** It's project-based (`projects` table; jobs carry `project_id`), with its own steel-blue dock (`#2C5F8A`, a new brand colour: Creator_OS had kept blue to chart accents) and four steps: Script (paste/upload/generate), Shot breakdown, 3D visual, Video edit.
 - **2026-10-06 — Full HyperFrames Studio, served by the app service.** The worker becomes one Railway service: built site + Studio API + job loop, with a volume at `/data` for project folders (`/data/projects/<user>/<project>`). `worker/server.ts` reuses the CLI's own `hyperframes preview` server (`createStudioServer`, deep-imported from the pinned CLI) per project behind Supabase-cookie auth and a project-ownership check. The editor loads in a same-origin iframe at `/studio/<project>/`. The static `site` service retires once this is deployed. No new keys: HeyGen/Gemini/Figma keys only unlock optional media-use, capture and Figma import.
 - **2026-10-06 — Blender runs on the creator's PC, never on our server.** A paired helper (`bridge/`, standard-library Python) claims `blockout` jobs over `/bridge/*` with a device key (only its hash is stored in `bridge_devices`), runs `blockout.py` headless, and uploads the preview MP4, stills and `.blend` into the project folder.
+- **2026-10-06 — LLM via OpenRouter for now (free tier, ~50 requests/day).** No Anthropic key yet; AgentRouter keys reject non-Claude-Code clients. The worker uses OpenRouter's Anthropic-compatible API through `ANTHROPIC_BASE_URL=https://openrouter.ai/api` + `ANTHROPIC_AUTH_TOKEN`, model from `CLAUDE_MODEL` (`nvidia/nemotron-3-super-120b-a12b:free`: free and supports JSON-schema output). Unset all three and set `ANTHROPIC_API_KEY` to go back to Claude. The Anthropic-only server-side fallback in `breakdown.ts` is skipped whenever a base URL is set.
+- **2026-10-06 — App service live** at https://worker-production-b2a3.up.railway.app (volume `worker-volume` at `/data`, 500 MB). Supabase Auth's Site URL points at it, and `YOUTUBE_APP_ORIGINS` (shared by all three connectors) lists it alongside the two local 5173 origins.
 
 ## Open decisions (ask before assuming)
 
@@ -90,11 +92,12 @@ From `frontend/`: `npm run dev` (http://127.0.0.1:5173), `npm run build` (typech
 
 Backend: `supabase link --project-ref siacpdaiovnliamhorrf` once, then `supabase functions deploy <name>`. Server secrets (Google/TikTok/Instagram client secrets, `*_TOKEN_ENCRYPTION_KEY`, `*_APP_ORIGINS`) live in Supabase function secrets, never in `VITE_*` vars. See `supabase/functions/.env.example`.
 
-App service (worker): deploy from the repo root with `railway up --service worker` (service var `RAILWAY_DOCKERFILE_PATH=worker/Dockerfile`). Railway variables: `SUPABASE_URL`, `SUPABASE_SECRET_KEY` (Supabase secret / service-role key), `ANTHROPIC_API_KEY`, and `VITE_SUPABASE_URL` + `VITE_SUPABASE_PUBLISHABLE_KEY` (build args for the site). Needs a volume mounted at `/data` and a public domain. Logs: `railway logs --service worker`.
+App service (worker): deploy from the repo root with `railway up --service worker` (service var `RAILWAY_DOCKERFILE_PATH=worker/Dockerfile`). Railway variables: `SUPABASE_URL`, `SUPABASE_SECRET_KEY` (Supabase secret / service-role key), `ANTHROPIC_API_KEY` (or `ANTHROPIC_BASE_URL` + `ANTHROPIC_AUTH_TOKEN` + `CLAUDE_MODEL` for OpenRouter), and `VITE_SUPABASE_URL` + `VITE_SUPABASE_PUBLISHABLE_KEY` (build args for the site). Needs a volume mounted at `/data` and a public domain. Logs: `railway logs --service worker`.
 
 Local: `npm start` in `worker/` runs the app server on :8787 and the job loop against the live queue; `npm run dev` in `frontend/` proxies `/api`, `/studio` and the Studio's assets to it.
 
 ## Known leftovers
 
 - `worker/server.ts` deep-imports `hyperframes/dist/studioServer-PXNJXHMV.js`. Bump that file name whenever the pinned HyperFrames version changes.
+- `frontend/public/studio-theme.css` reskins the Studio by overriding its CSS tokens (`--color-*`, `--radius-*`, `--font-sans`). Re-check the token names on a HyperFrames bump.
 - Railway volumes have no automatic backup. Project folders (edits, footage, references, blockouts) live only on `/data`.

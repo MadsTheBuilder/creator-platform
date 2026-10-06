@@ -1,0 +1,42 @@
+/* Content Engine skin for the HyperFrames Studio (injected by worker/server.ts).
+   Overrides HyperFrames 0.8.134 Studio tokens; re-check token names when bumping.
+   Every panel, the timeline and the dockview chrome derive their colours from these base tokens. */
+@font-face{font-family:'Geist';font-weight:400;font-display:swap;src:url(/fonts/geist-latin-400-normal.woff2) format('woff2')}
+@font-face{font-family:'Geist';font-weight:500;font-display:swap;src:url(/fonts/geist-latin-500-normal.woff2) format('woff2')}
+@font-face{font-family:'Geist';font-weight:600;font-display:swap;src:url(/fonts/geist-latin-600-normal.woff2) format('woff2')}
+
+:root:not([data-theme=paper]){
+  --font-sans:'Geist',system-ui,sans-serif;
+  /* Warm ink, lifted in steps like the app's glass. */
+  --color-bg-0:#0d0b0c;
+  --color-bg-1:#120f11;
+  --color-surface:#1a1618;
+  --color-raised:#221d1f;
+  --color-input:#161316;
+  --color-text-0:#fff;
+  --color-text-2:#e6e0dd;
+  --color-text-muted:#b4adaa;
+  --color-text-off:#8d8683;
+  --color-border:rgb(255 255 255 / .09);
+  --color-border-strong:rgb(255 255 255 / .18);
+  --color-hover:rgb(255 255 255 / .07);
+  /* Accent: the app's orange (swap these four for Playground blue #2c5f8a). */
+  --color-accent:#ff6d29;
+  --color-accent-hover:#ff7f45;
+  --color-accent-ink:#ffa47a;
+  --color-on-accent:#161316;
+  --color-on:rgb(255 109 41 / .16);
+  --color-on-hover:rgb(255 109 41 / .27);
+  --color-brand-gradient-from:#ffa47a;
+  --color-brand-gradient-to:#ff6d29;
+  --color-framey:#ff6d29;
+  --color-framey-ink:#161316;
+  /* Shape: the app's control and card radii. */
+  --radius-md:10px;
+  --radius-lg:14px;
+  --radius-xl:18px;
+  --timeline-clip-chip-bg:rgb(22 19 22 / .75);
+  --timeline-clip-band-bg:#0d0b0c;
+}
+:root:not([data-theme=paper]) body{background:var(--color-bg-0);font-family:var(--font-sans)}
+::selection{background:#ff6d29;color:#161316}
