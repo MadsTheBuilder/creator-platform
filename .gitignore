@@ -33,3 +33,4 @@ Thumbs.db
 
 # App server project files (local dev)
 worker/data/
+*.tsbuildinfo
