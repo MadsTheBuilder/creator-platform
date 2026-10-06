@@ -30,7 +30,7 @@ async function next(): Promise<boolean> {
   if (!job) return false;
   console.log(`job ${job.id} ${job.kind} started`);
   try {
-    const output = job.kind === 'breakdown' ? await breakdown(claude, job.input) : job.kind === 'transcribe' ? await transcribe(job) : await script(claude, job.input);
+    const output = job.kind === 'breakdown' ? await breakdown(claude, job.input) : job.kind === 'transcribe' ? await transcribe(db, job) : await script(claude, job.input);
     await finish(job.id, { status: 'done', output });
     console.log(`job ${job.id} done`);
   } catch (cause) {

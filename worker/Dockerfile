@@ -30,9 +30,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 ENV HYPERFRAMES_NO_TELEMETRY=1 DATA_DIR=/data
-# Speech to text: whisper-cli on PATH, and the multilingual small model (Hindi + English) where HyperFrames looks.
+# Speech to text: whisper-cli on PATH and the large-v3-turbo model (Hindi + English; ~1.6 GB, ~2 GB RAM while running).
 COPY --from=whisper /whisper/build/bin/whisper-cli /usr/local/bin/whisper-cli
-ADD https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small.bin /root/.cache/hyperframes/whisper/models/ggml-small.bin
+ADD https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo.bin /root/.cache/hyperframes/whisper/models/ggml-large-v3-turbo.bin
 WORKDIR /app/worker
 COPY worker/package.json worker/package-lock.json ./
 RUN npm ci --omit=dev \

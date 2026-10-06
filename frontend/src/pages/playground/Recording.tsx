@@ -2,24 +2,30 @@ import { useEffect, useState, type ChangeEvent } from 'react';
 import { MusicNotes, Trash, UploadSimple } from '@phosphor-icons/react';
 import { api, safeName, uploadFile } from '../../data/app-server';
 import { useAppServer, usePolled, useProjectChanges } from '../../data/hooks';
-import type { Project } from '../../data/projects';
+import { updateProject, type Project } from '../../data/projects';
 import { clock, transcriptLines, type Word } from '../../data/transcript';
 import { active, latestJob, queueJob, type TranscribeJob } from '../../data/video-jobs';
 import { Button, Empty, Notice } from '../../components/ui';
 
 type Media = { name: string; bytes: number };
 const RECORDING = /^recording\.(mp4|m4a)$/;
-const LANGUAGES = [{ value: '', label: 'Hindi and English (detect)' }, { value: 'hi', label: 'Mostly Hindi' }, { value: 'en', label: 'Mostly English' }];
+// Named, not detected: detection called a Hindi narration English and translated it.
+const LANGUAGES = [
+  { value: 'hi:roman', label: 'Hindi / Hinglish, in Roman letters' },
+  { value: 'hi:devanagari', label: 'Hindi, in Devanagari' },
+  { value: 'en:roman', label: 'English' },
+];
 const mb = (bytes: number) => `${Math.max(1, Math.round(bytes / 1048576))} MB`;
 
 // Studio track: the creator's recording, turned into a working copy plus word timings (a 'transcribe' job),
 // and the music and sound effects the build uses. Everything lands in the project's media/ folder.
-export function Recording({ project }: { project: Project }) {
+export function Recording({ project, onSaved }: { project: Project; onSaved: (p: Project) => void }) {
   const server = useAppServer();
   const [job, setJob] = useState<TranscribeJob | null>(null);
   const [media, setMedia] = useState<Media[]>([]);
   const [words, setWords] = useState<Word[] | null>(null);
-  const [language, setLanguage] = useState('');
+  const [language, setLanguage] = useState(LANGUAGES[0].value);
+  const [script, setScript] = useState(project.script);
   const [progress, setProgress] = useState<number | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -52,11 +58,13 @@ export function Recording({ project }: { project: Project }) {
     const file = event.target.files?.[0];
     event.target.value = '';
     if (!file) return;
-    if (file.size > 1024 * 1048576) { setError('Recordings up to 1 GB fit. Export a 1080p copy and try again.'); return; }
+    if (file.size > 1024 * 1048576) { setError('Recordings up to 1 GB fit. Export a 1080p H.264 copy (Final Cut: File > Share > Apple Devices 1080p) and upload that.'); return; }
     setBusy(true);
     try {
       const name = await send(file, 'recording.mp4');
-      setJob(await queueJob<TranscribeJob>('transcribe', { file: name, ...(language ? { language } : {}) }, project.id));
+      if (script !== project.script) onSaved(await updateProject(project.id, { script }));
+      const [lang, writing] = language.split(':');
+      setJob(await queueJob<TranscribeJob>('transcribe', { file: name, language: lang, writing }, project.id));
     } catch (e) { setError((e as Error).message); } finally { setBusy(false); }
   }
   async function uploadSound(event: ChangeEvent<HTMLInputElement>) {
@@ -81,6 +89,8 @@ export function Recording({ project }: { project: Project }) {
           <input className="sr-only" type="file" accept="video/*,audio/*" disabled={busy || active(job)} onChange={uploadRecording}/></label>
       </div>
       <label className="recording-language">Spoken language<select value={language} onChange={e => setLanguage(e.target.value)}>{LANGUAGES.map(l => <option key={l.value} value={l.value}>{l.label}</option>)}</select></label>
+      <label>Your script (optional)<textarea rows={4} maxLength={60000} value={script} onChange={e => setScript(e.target.value)}
+        placeholder="Paste what you say, if you wrote it down. It's saved before the upload and helps spell names your way, in your writing (Roman or Devanagari)."/></label>
       {progress !== null && <div role="status" className="upload-progress"><progress max={1} value={progress}/> Uploading… {Math.round(progress * 100)}%</div>}
       {active(job) && <Notice><span role="status">Converting and transcribing your recording. About a minute per minute of speech; you can leave this page.</span></Notice>}
       {job?.status === 'failed' && <p role="alert">{job.error}</p>}

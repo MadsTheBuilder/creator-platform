@@ -78,7 +78,7 @@ for (const mode of ['modern', 'legacy'] as const) {
     const { tools } = await client.listTools();
     assert.deepEqual(tools.map(t => t.name), ['get_guide', 'list_projects', 'create_project', 'get_project', 'save_script', 'get_breakdown', 'save_breakdown',
       'seed_composition', 'get_composition', 'save_composition', 'list_references', 'create_upload_url', 'queue_blockout', 'get_job', 'get_blockout',
-      'get_transcript', 'transcribe_recording', 'save_plan', 'analyze_beats', 'snapshot']);
+      'get_transcript', 'transcribe_recording', 'fix_transcript', 'save_plan', 'analyze_beats', 'snapshot']);
     assert.ok(tools.every(t => t.description && t.annotations));
     await client.close();
   });
@@ -185,6 +185,12 @@ test('studio: transcript, beat plan, uploads and beats', { timeout: 120_000 }, a
   const transcript = await call(client, 'get_transcript', { project_id: project.id });
   assert.equal(transcript.structuredContent.words, 2);
   assert.equal(transcript.structuredContent.transcript, '0.20 0.60 Namaste\n0.70 1.10 dosto.');
+
+  const fixed = await call(client, 'fix_transcript', { project_id: project.id, edits: [{ index: 0, text: 'Namaste,' }] });
+  assert.equal(fixed.structuredContent.changed, 1);
+  const outOfRange = await call(client, 'fix_transcript', { project_id: project.id, edits: [{ index: 2, text: 'x' }] });
+  assert.equal(outOfRange.isError, true);
+  assert.match((await call(client, 'get_transcript', { project_id: project.id })).structuredContent.transcript, /^0\.20 0\.60 Namaste,\n/);
 
   const plan = await call(client, 'save_plan', { project_id: project.id, plan: 'Brief: one line of light.\n0-2 s · Namaste · the line wakes · whoosh' });
   assert.equal(plan.structuredContent.saved, true);

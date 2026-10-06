@@ -12,7 +12,9 @@ the only author. The creator judges the result against motion graphics they admi
    transcript yet, ask the creator to upload their recording in Playground > Recording (or upload one for
    them with `create_upload_url` target `media`, then `transcribe_recording`).
 2. **Read the words.** `get_transcript` returns every word with start and end times in seconds. The recording
-   is the spine: cuts, reveals and captions land on its words and pauses.
+   is the spine: cuts, reveals and captions land on its words and pauses. Speech-to-text mishears names and
+   sometimes leaves stray characters from other alphabets: if the project has a script (or the creator gives you
+   one), compare and correct the words with `fix_transcript` before you time anything to them.
 3. **Pick the music first** (if there is any in `media/`), then `analyze_beats` it. Section changes go on bar
    lines (every 4 or 8 beats), hits and cuts on beats. Without music, the transcript's phrase ends are the beat.
 4. **Write the beat plan** and save it with `save_plan`. It shows on the Direction step. Then stop and ask the
@@ -68,8 +70,8 @@ the only author. The creator judges the result against motion graphics they admi
   in front of it, push in on emphasis. For a voiceover, the world carries the picture alone.
 - **Captions** come from the transcript. Put the word timings you got from `get_transcript` into the script as
   a data array and reveal words on their own start times (a word or a short phrase at a time, big, on the
-  accent colour for the stressed word). Hindi words may come back in Devanagari: keep the script the creator
-  speaks in unless they ask otherwise, and check the glyphs in a snapshot (Noto fonts cover Devanagari).
+  accent colour for the stressed word). Hindi is transcribed in the writing the creator chose (Roman Hinglish by
+  default, or Devanagari); keep it, and check the glyphs in a snapshot (Noto fonts cover Devanagari).
 
 ## Mechanics
 
