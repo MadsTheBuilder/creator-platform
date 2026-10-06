@@ -6,6 +6,7 @@ Each project is one HyperFrames project folder on the server. The site's Edit st
 - `seed_composition` builds the starting animatic from the latest breakdown (root `data-composition-id="storyboard"`, one `.clip` per shot). It only replaces a blank project unless you pass `overwrite: true`; overwriting discards the creator's edits, so ask first.
 - References the creator uploaded live at `references/shot-<n>/<file>` (relative to `index.html`); use them as `<img>`/`<video>` sources.
 - Always `get_composition` first and send its `hash` back as `expected_hash` with `save_composition`. If the creator edited in the Studio meanwhile, the save is refused: read again and redo your change on top of theirs. Change what was asked; never rewrite the whole file to make a small edit.
+- The seeded animatic always reports `timeline_track_too_dense` and `nested_structure_needs_subcomposition` warnings (one clip per shot, by design). Leave that structure alone unless the creator asks for a restructure.
 - Every save runs `hyperframes check` (lint, runtime, layout, contrast). Errors block the save and come back to you; fix them and save again. Warnings are saved and reported.
 
-The HyperFrames reference for this pinned version follows.
+The HyperFrames reference for this pinned version follows. Where its examples load GSAP from a CDN, use the local `gsap.min.js` here instead.
