@@ -8,8 +8,8 @@ the only author. The creator judges the result against motion graphics they admi
 ## The order of work
 
 1. **Read the project.** `get_project` gives the direction (their look and feel in a few lines, often with
-   reference links), the beat plan if one exists, the media files and the transcript status. If there is no
-   transcript yet, ask the creator to upload their recording in Playground > Recording (or upload one for
+   reference links; `references` with `shot: 0` are the creator's own visual references for the whole video, look at them), the beat plan if one exists, the media files and the transcript status. If there is no
+   transcript yet, ask the creator to upload their recording in Playground > Direct (or upload one for
    them with `create_upload_url` target `media`, then `transcribe_recording`). Speech to text runs on the
    creator's computer: if you have a shell there, run the two commands `transcribe_recording` returns (in the
    background: the first run downloads ~1.6 GB); otherwise pass `on: "helper"` for their helper app.
@@ -23,7 +23,7 @@ the only author. The creator judges the result against motion graphics they admi
    ("shaam", "bheed", "hai"). Keep English words in English.
 3. **Pick the music first** (if there is any in `media/`), then `analyze_beats` it. Section changes go on bar
    lines (every 4 or 8 beats), hits and cuts on beats. Without music, the transcript's phrase ends are the beat.
-4. **Write the beat plan** and save it with `save_plan`. It shows on the Direction step. Then stop and ask the
+4. **Write the beat plan** and save it with `save_plan`. It shows on the Direct step. Then stop and ask the
    creator to approve or change it. Do not build before they approve.
 5. **Build** one composition (`get_composition`, then `save_composition` with its hash).
 6. **Look at it.** `snapshot` at the moments that matter (every section change, the biggest hit, a caption

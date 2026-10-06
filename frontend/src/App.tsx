@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type CSSProperties } from 'react';
-import { SquaresFour, TrendUp, CalendarBlank, Sparkle, Recycle, Plugs, MagnifyingGlass, List, Plus, ArrowLeft, FileText, FilmStrip, Images, Cube, Scissors, VideoCamera, Microphone, Compass, Hammer, type Icon } from '@phosphor-icons/react';
+import { SquaresFour, TrendUp, CalendarBlank, Sparkle, Recycle, Plugs, MagnifyingGlass, List, Plus, ArrowLeft, FileText, FilmStrip, Images, Cube, Scissors, VideoCamera, Compass, Hammer, type Icon } from '@phosphor-icons/react';
 import { Overview } from './pages/Overview';
 import { Connections } from './pages/Connections';
 import { Playground } from './pages/Playground';
@@ -14,7 +14,7 @@ const nav=[
   {label:'Repurpose',icon:Recycle},
   {label:'Connections',icon:Plugs,route:'Connections'},
 ];
-const stepIcons:Record<Step,Icon>={script:FileText,shots:FilmStrip,storyboard:Images,'3d':Cube,recording:Microphone,direction:Compass,build:Hammer,edit:Scissors};
+const stepIcons:Record<Step,Icon>={script:FileText,shots:FilmStrip,storyboard:Images,'3d':Cube,direct:Compass,build:Hammer,edit:Scissors};
 const routes=['Overview','Planner','Playground','Connections'];
 const headings:Record<string,[string,string]>={
   Overview:['Channel performance','Real numbers from the platforms you own. Nothing estimated.'],

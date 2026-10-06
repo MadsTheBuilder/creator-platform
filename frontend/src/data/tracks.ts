@@ -1,7 +1,7 @@
 // The Playground's two tracks (projects.track), each with its own steps. A project picks one when it is
 // created and keeps it. Both end in the same HyperFrames editor.
 export type Track = 'production' | 'studio';
-export type Step = 'script' | 'shots' | 'storyboard' | '3d' | 'recording' | 'direction' | 'build' | 'edit';
+export type Step = 'script' | 'shots' | 'storyboard' | '3d' | 'direct' | 'build' | 'edit';
 export type StepInfo = { step: Step; label: string; blurb: string };
 
 const EDIT: StepInfo = { step: 'edit', label: 'Video edit', blurb: 'The full HyperFrames editor: timeline, keyframes, audio, blocks and render.' };
@@ -21,8 +21,7 @@ export const TRACKS: Record<Track, { label: string; blurb: string; steps: StepIn
     label: 'Studio',
     blurb: 'Motion graphics built in code around your own recording, timed to your words and the music.',
     steps: [
-      { step: 'recording', label: 'Recording', blurb: 'Upload your recording (or write a script). It is transcribed word by word for timing.' },
-      { step: 'direction', label: 'Direction', blurb: 'The look and feel in a few lines, plus reference videos. Your Claude turns it into a beat plan.' },
+      { step: 'direct', label: 'Direct', blurb: 'Describe the video, add references, upload your recording. Your Claude turns it into a beat plan.' },
       { step: 'build', label: 'Build', blurb: 'Your Claude builds the video in code around your recording, then checks its own frames.' },
       EDIT,
     ],

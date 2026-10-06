@@ -307,7 +307,7 @@ export function createMcp(db: SupabaseClient) {
 
     server.registerTool('list_references', {
       title: 'List references',
-      description: 'Reference images and videos the creator attached per shot (used for the 3D step and AI video). Paths are relative to the composition.',
+      description: 'Reference images and videos the creator attached per shot (used for the 3D step and AI video). shot 0 means project-wide: a Studio project\'s visual references for the whole video. Paths are relative to the composition.',
       inputSchema: z.object({ project_id: projectId }),
       annotations: read,
     }, guarded('list_references', async ({ project_id }) => ok({
@@ -397,7 +397,7 @@ export function createMcp(db: SupabaseClient) {
       annotations: read,
     }, guarded('get_transcript', async ({ project_id }) => {
       const words = await readTranscript(user, project_id);
-      if (!words?.length) return refuse('There is no transcript yet. Ask the creator to upload their recording in Playground > Recording, or upload it with create_upload_url (target "media") and call transcribe_recording.');
+      if (!words?.length) return refuse('There is no transcript yet. Ask the creator to upload their recording in Playground > Direct, or upload it with create_upload_url (target "media") and call transcribe_recording.');
       const lines = words.map(w => `${w.start.toFixed(2)} ${w.end.toFixed(2)} ${w.text}`).join('\n');
       const devanagari = words.filter(w => /[ऀ-ॿ]/.test(w.text)).length;
       let note: string | undefined;
@@ -411,7 +411,7 @@ export function createMcp(db: SupabaseClient) {
 
     server.registerTool('transcribe_recording', {
       title: 'Transcribe a recording',
-      description: 'Make a recording in media/ the Studio project\'s recording. Speech to text runs on the creator\'s own computer, never on the server; the server then makes the 1080p working copy (media/recording.mp4, or .m4a for audio only). on "here" (default, for clients with a shell on the creator\'s computer, like Claude Code): returns two commands to run there; the first run downloads whisper.cpp and its speech model (~1.6 GB). on "helper": queues it for the creator\'s paired helper app instead (Playground > Recording), for clients without a shell. The project\'s script, if it has one, guides the spelling. Then poll get_job and call get_transcript.',
+      description: 'Make a recording in media/ the Studio project\'s recording. Speech to text runs on the creator\'s own computer, never on the server; the server then makes the 1080p working copy (media/recording.mp4, or .m4a for audio only). on "here" (default, for clients with a shell on the creator\'s computer, like Claude Code): returns two commands to run there; the first run downloads whisper.cpp and its speech model (~1.6 GB). on "helper": queues it for the creator\'s paired helper app instead (Playground > Direct), for clients without a shell. The project\'s script, if it has one, guides the spelling. Then poll get_job and call get_transcript.',
       inputSchema: z.object({
         project_id: projectId, file: z.string().max(120).describe('File name in media/, e.g. take-2.mp4'),
         language: z.enum(['hi', 'en']).default('hi').describe('"hi" for Hindi or Hinglish, "en" for English. Ask the creator if unsure.'),
@@ -434,7 +434,7 @@ export function createMcp(db: SupabaseClient) {
       if (error) throw error;
       if (helper) {
         const { data: devices } = await db.from('bridge_devices').select('last_seen').eq('user_id', user).gt('last_seen', new Date(Date.now() - 90_000).toISOString());
-        return ok({ job_id: data.id, status: 'queued', helper_online: Boolean(devices?.length) }, `Queued for the creator's helper app${devices?.length ? ', which is online' : '. It is offline: ask the creator to start it (or download it from Playground > Recording)'}. Poll get_job("${data.id}") every 30 s, then call get_transcript.`);
+        return ok({ job_id: data.id, status: 'queued', helper_online: Boolean(devices?.length) }, `Queued for the creator's helper app${devices?.length ? ', which is online' : '. It is offline: ask the creator to start it (or download it from Playground > Direct)'}. Poll get_job("${data.id}") every 30 s, then call get_transcript.`);
       }
       const origin = String(authInfo?.extra?.origin ?? ''), job = `${origin}/bridge/jobs/${data.id}`, key = ticketFor(user, data.id);
       return ok({ job_id: data.id, status: 'running', script_url: `${origin}/kit/transcribe.py`, job_url: job, key },
@@ -468,13 +468,13 @@ The first run downloads whisper.cpp and the speech model (~1.6 GB) into a cache,
 
     server.registerTool('save_plan', {
       title: 'Save the beat plan',
-      description: 'Save the Studio project\'s beat plan (the brief, then one line per beat: time, words, picture, sound). It shows on the Direction step. Then ask the creator to approve it before you build.',
+      description: 'Save the Studio project\'s beat plan (the brief, then one line per beat: time, words, picture, sound). It shows on the Direct step. Then ask the creator to approve it before you build.',
       inputSchema: z.object({ project_id: projectId, plan: z.string().trim().min(1).max(20000), request_id: requestId }),
       annotations: { ...write, idempotentHint: true },
     }, guarded('save_plan', async ({ project_id, plan }) => {
       const { error } = await db.from('projects').update({ beat_plan: plan, updated_at: new Date().toISOString() }).eq('id', project_id).eq('user_id', user);
       if (error) throw error;
-      return ok({ saved: true }, 'Saved; it shows in Playground > Direction. Ask the creator to approve or change it before building.');
+      return ok({ saved: true }, 'Saved; it shows in Playground > Direct. Ask the creator to approve or change it before building.');
     }));
 
     server.registerTool('analyze_beats', {

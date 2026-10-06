@@ -285,3 +285,19 @@ test('the whisper prompt is the project script or nothing (no seed sentence)', a
   assert.deepEqual(await settings(db, job(BLANK, 'roman', 'en')), { language: 'en', prompt: '' });
   assert.deepEqual(await settings(db, job(SCRIPTED, 'roman')), { language: 'hi', prompt: 'Shaam ke 7 baj rahe the.' });
 });
+
+test('a Studio project keeps project-wide references (shot 0) next to per-shot ones', async () => {
+  const { refPath } = await import('./project-files.ts');
+  const client = await connect('modern');
+  const { structuredContent: { project } } = await call(client, 'create_project', { name: 'Refs', track: 'studio' });
+  assert.ok(refPath(ME, project.id, 0, 'look.png'));
+  assert.equal(refPath(ME, project.id, -1, 'look.png'), null);
+  for (const [shot, name] of [[0, 'look.png'], [2, 'cam.mp4']] as const) {
+    const path = refPath(ME, project.id, shot, name)!;
+    await mkdir(join(path, '..'), { recursive: true });
+    await writeFile(path, 'x');
+  }
+  const refs = (await call(client, 'list_references', { project_id: project.id })).structuredContent.references;
+  assert.deepEqual(refs.map((r: Row) => [r.shot, r.name]).sort(), [[0, 'look.png'], [2, 'cam.mp4']]);
+  await client.close();
+});

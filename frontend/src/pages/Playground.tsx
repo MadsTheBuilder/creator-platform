@@ -8,8 +8,7 @@ import { Shots } from './playground/Shots';
 import { Storyboard } from './playground/Storyboard';
 import { Visual3D } from './playground/Visual3D';
 import { Edit } from './playground/Edit';
-import { Recording } from './playground/Recording';
-import { Direction } from './playground/Direction';
+import { Direct } from './playground/Direct';
 import { Build } from './playground/Build';
 import { stepIn, stepsFor, TRACKS, type Step, type Track } from '../data/tracks';
 
@@ -82,8 +81,7 @@ export function Playground({ projectId, step: asked, onOpen, onProject, onConnec
         : step === 'shots' ? <Shots project={project} onScript={() => onOpen(project.id, 'script')} onStoryboard={() => onOpen(project.id, 'storyboard')}/>
         : step === 'storyboard' ? <Storyboard project={project} onShots={() => onOpen(project.id, 'shots')}/>
         : step === '3d' ? <Visual3D project={project} onShots={() => onOpen(project.id, 'shots')}/>
-        : step === 'recording' ? <Recording project={project} onSaved={setProject}/>
-        : step === 'direction' ? <Direction project={project} onSaved={setProject}/>
+        : step === 'direct' ? <Direct project={project} onSaved={setProject}/>
         : step === 'build' ? <Build project={project} onEdit={() => onOpen(project.id, 'edit')}/>
         : <Edit project={project}/>}
       {nameDialog}

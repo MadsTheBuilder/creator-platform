@@ -77,15 +77,15 @@ export async function latestBreakdown(db: SupabaseClient, user: string, project:
 
 // Reference images and videos per shot, in <project>/references/shot-<n>/ (the editor sees them too).
 export function refPath(user: string, id: string, shot: number, name: string) {
-  if (!Number.isInteger(shot) || shot < 1 || shot > 999 || !SAFE_NAME.test(name) || !REFERENCE.test(name)) return null;
+  if (!Number.isInteger(shot) || shot < 0 || shot > 999 || !SAFE_NAME.test(name) || !REFERENCE.test(name)) return null;
   return join(projectDir(user, id), 'references', `shot-${shot}`, name);
 }
 export async function listReferences(user: string, id: string) {
   const root = join(projectDir(user, id), 'references');
   const refs: { shot: number; name: string }[] = [];
   for (const dir of await readdir(root).catch(() => [] as string[])) {
-    const shot = Number(dir.match(/^shot-(\d+)$/)?.[1]);
-    if (shot) for (const name of await readdir(join(root, dir))) if (REFERENCE.test(name)) refs.push({ shot, name });
+    const shot = Number(dir.match(/^shot-(\d+)$/)?.[1] ?? NaN);
+    if (shot >= 0) for (const name of await readdir(join(root, dir))) if (REFERENCE.test(name)) refs.push({ shot, name });
   }
   return refs;
 }
