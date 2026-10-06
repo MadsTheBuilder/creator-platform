@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ChangeEvent, type FormEvent } from 'react';
+import { useEffect, useRef, useState, type ChangeEvent, type ClipboardEvent, type FormEvent } from 'react';
 import { UploadSimple } from '@phosphor-icons/react';
 import { usePolled } from '../../data/hooks';
 import { updateProject, type Project } from '../../data/projects';
@@ -26,11 +26,24 @@ export function Script({ project, onSaved, onShots }: { project: Project; onSave
     catch (e) { setError((e as Error).message); return false; } finally { setBusy(false); }
   }
 
+  // Pasting a whole script replaces the one in the box (pasting into the middle of the old script mixes the two).
+  // Short pastes and pastes over a selection behave normally. Undo puts the previous text back.
+  const [replaced, setReplaced] = useState<string | null>(null);
+  function paste(event: ClipboardEvent<HTMLTextAreaElement>) {
+    const pasted = event.clipboardData.getData('text'), box = event.currentTarget;
+    const wholeSelected = box.selectionStart === 0 && box.selectionEnd === text.length;
+    if (pasted.length < 300 || !text.trim() || wholeSelected) return;
+    event.preventDefault();
+    setReplaced(text);
+    setText(pasted.slice(0, 60000));
+  }
+
   async function upload(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
     event.target.value = '';
     if (!file) return;
     if (file.size > 500_000) { setError('That file is too large. Scripts up to about 60,000 characters fit.'); return; }
+    setReplaced(text.trim() ? text : null);
     setText((await file.text()).slice(0, 60000));
   }
 
@@ -54,7 +67,8 @@ export function Script({ project, onSaved, onShots }: { project: Project; onSave
         <h2>Script</h2>
         <label className="button"><UploadSimple size={16}/>Upload .txt / .md<input className="sr-only" type="file" accept=".txt,.md,.fountain,text/plain,text/markdown" onChange={upload}/></label>
       </div>
-      <textarea aria-label="Script" rows={16} maxLength={60000} placeholder="Paste your script: VO, dialogue, scene notes… or generate one below." value={text} onChange={e => setText(e.target.value)}/>
+      <textarea aria-label="Script" rows={16} maxLength={60000} placeholder="Paste your script: VO, dialogue, scene notes… or generate one below." value={text} onPaste={paste} onChange={e => { setText(e.target.value); setReplaced(null); }}/>
+      {replaced !== null && <Notice><span role="status">Replaced the previous script with what you pasted.</span> <button className="link-button" onClick={() => { setText(replaced); setReplaced(null); }}>Undo</button></Notice>}
       <div className="toolbar-actions">
         <Button className="primary" disabled={busy || !dirty} onClick={() => save()}>Save script</Button>
         <Button disabled={busy || !text.trim()} onClick={async () => { if (!dirty || await save()) onShots(); }}>Next: shot breakdown</Button>

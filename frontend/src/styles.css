@@ -386,3 +386,5 @@ meter::-moz-meter-bar{border-radius:99px;background:var(--orange)}
 .assistant-grants{display:grid;gap:8px;align-self:stretch;margin:0;padding:0;list-style:none}
 .assistant-grants li{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px 12px;border:1px solid var(--rim);border-radius:var(--control);font-size:.875rem}
 .assistant-grants small{display:block;color:var(--faint);font-size:.75rem}
+.link-button{margin-left:auto;padding:0;border:0;background:none;color:var(--orange-soft);font:inherit;font-weight:600;text-decoration:underline;cursor:pointer}
+.link-button:focus-visible{outline:2px solid var(--orange);outline-offset:2px;border-radius:4px}
