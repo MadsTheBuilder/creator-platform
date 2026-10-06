@@ -343,9 +343,30 @@ meter::-moz-meter-bar{border-radius:99px;background:var(--orange)}
 .project-dialog label{display:flex;flex-direction:column;gap:6px;color:var(--muted);font-size:.8125rem}
 .project-dialog input{min-height:38px;padding:0 12px;border:1px solid var(--rim);border-radius:var(--control);background:var(--glass);color:var(--text);font-size:.875rem}
 .project-dialog .toolbar-actions{justify-content:flex-end}
+.track-choice{display:grid;gap:8px;margin:0;padding:0;border:0}
+.track-choice legend{margin-bottom:8px;padding:0;color:var(--muted);font-size:.8125rem}
+.project-dialog .track-card{flex-direction:row;align-items:flex-start;gap:10px;padding:12px;border:1px solid var(--rim);border-radius:12px;background:var(--glass);cursor:pointer}
+.project-dialog .track-card:has(:checked){border-color:var(--orange);background:rgb(255 109 41 / .08)}
+.project-dialog .track-card input{min-height:0;margin:2px 0 0;padding:0;accent-color:var(--orange)}
+.track-card span{display:grid;gap:3px}
+.track-card strong{color:var(--text);font-size:.875rem}
 .button.danger{background:#c8372d;border-color:transparent;color:#fff;font-weight:600}
 .storyboard-form .section-toolbar label.button{cursor:pointer}
 .storyboard-form .section-toolbar label.button:focus-within{outline:2px solid var(--orange-soft);outline-offset:2px}
+.storyboard-form label.button.disabled{opacity:.5;pointer-events:none}
+.recording-language{max-width:280px}
+.upload-progress{display:flex;align-items:center;gap:10px;color:var(--muted);font-size:.8125rem}
+.upload-progress progress{flex:1;max-width:320px;accent-color:var(--orange)}
+.recording-player{width:100%;max-height:420px;border-radius:12px;background:#000}
+.transcript{display:grid;gap:6px;max-height:420px;margin:0;padding:0;overflow:auto;list-style:none;font-size:.875rem}
+.transcript li{display:grid;grid-template-columns:56px 1fr;gap:10px}
+.transcript time{color:var(--muted);font-variant-numeric:tabular-nums}
+.media-list{display:grid;gap:6px;margin:0;padding:0;list-style:none}
+.build-checklist{display:grid;gap:8px;margin:0;padding:0;list-style:none;font-size:.875rem}
+.build-checklist li{display:flex;align-items:center;gap:8px}
+.build-checklist svg{flex-shrink:0;color:var(--orange)}
+.build-frames{width:100%;border-radius:12px;background:#000}
+.media-list li{display:flex;align-items:center;justify-content:space-between;gap:12px;overflow-wrap:anywhere}
 .content-editor{display:flex;flex-direction:column;padding:12px 0 0}
 .frame.editing .main{padding-right:0}
 .studio-frame{flex:1;width:100%;min-height:0;border:0;border-top:1px solid var(--rim);border-radius:0 0 27px 0;background:#161316}

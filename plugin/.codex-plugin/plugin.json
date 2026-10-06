@@ -1,7 +1,7 @@
 {
   "name": "creator-platform",
   "version": "1.0.0",
-  "description": "Work on your Content Engine Playground projects from Codex: scripts, shot breakdowns, the HyperFrames edit and Blender blockouts, saved straight into the site.",
+  "description": "Work on your Content Engine Playground projects from Codex: scripts, shot breakdowns, the HyperFrames edit, Blender blockouts and Studio-track motion graphics, saved straight into the site.",
   "author": { "name": "Madhu" },
   "skills": "./skills/",
   "mcpServers": "./.mcp.json",

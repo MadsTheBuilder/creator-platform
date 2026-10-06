@@ -27,4 +27,5 @@ Check: `curl https://<ref>.supabase.co/.well-known/oauth-authorization-server/au
 - Playbooks are served by `get_guide` from `worker/prompts/` and the pinned HyperFrames docs, so editing a prompt changes agent behaviour on the next call. The plugin's skills only route to them.
 - `serverInfo.version` is a hash of the tools, schemas and prompts: it changes exactly when the surface does.
 - `worker/mcp.test.ts` (`npm test` in `worker/`) is the contract: a real MCP client in both protocol eras against the real tools. The tool-list assertion fails when a tool is added, removed or renamed; update it on purpose.
+- Studio-track tools (`get_transcript`, `transcribe_recording`, `save_plan`, `analyze_beats`, `snapshot`) run the pinned CLI's `transcribe`, `beats` and `snapshot` on the server. `snapshot` writes `snapshots/` in the project (the Build step shows its contact sheet) and returns 960 px JPEGs. Transcription needs `whisper-cli` and `ggml-small.bin` in the image (`worker/Dockerfile`).
 - New site feature that an agent should use: add a tool in `mcp.ts` that calls the same helper as the route, add it to the test's list, and mention it in the relevant guide.

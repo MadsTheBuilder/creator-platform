@@ -1,7 +1,8 @@
 // Contract test: a real MCP client (2026-07-28 and 2025-era) against the real tools, with an in-memory Supabase
 // and a scratch DATA_DIR. Run: npm test (in worker/).
 import assert from 'node:assert/strict';
-import { mkdtemp } from 'node:fs/promises';
+import { execFileSync } from 'node:child_process';
+import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
@@ -9,7 +10,7 @@ import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/cli
 
 process.env.DATA_DIR = await mkdtemp(join(tmpdir(), 'mcp-test-'));
 const { createMcp } = await import('./mcp.ts');
-const { latestBreakdown } = await import('./project-files.ts');
+const { latestBreakdown, projectDir } = await import('./project-files.ts');
 
 // Just enough of supabase-js's query builder for the tools: filters, order, limit, single rows, insert/update.
 type Row = Record<string, any>;
@@ -46,8 +47,8 @@ function fakeDb(tables: Record<string, Row[]>) {
 const ME = crypto.randomUUID(), SOMEONE = crypto.randomUUID(), MINE = crypto.randomUUID(), THEIRS = crypto.randomUUID();
 const tables: Record<string, Row[]> = {
   projects: [
-    { id: MINE, user_id: ME, name: 'Red balloon', script: 'VO: A red balloon drifts over Mirzapur.', updated_at: '2026-10-01T00:00:00Z' },
-    { id: THEIRS, user_id: SOMEONE, name: 'Not mine', script: '', updated_at: '2026-10-01T00:00:00Z' },
+    { id: MINE, user_id: ME, name: 'Red balloon', track: 'production', direction: '', beat_plan: '', script: 'VO: A red balloon drifts over Mirzapur.', updated_at: '2026-10-01T00:00:00Z' },
+    { id: THEIRS, user_id: SOMEONE, name: 'Not mine', track: 'production', direction: '', beat_plan: '', script: '', updated_at: '2026-10-01T00:00:00Z' },
   ],
   video_jobs: [], bridge_devices: [],
 };
@@ -76,7 +77,8 @@ for (const mode of ['modern', 'legacy'] as const) {
     assert.match(client.getServerVersion()?.version ?? '', /\w/);
     const { tools } = await client.listTools();
     assert.deepEqual(tools.map(t => t.name), ['get_guide', 'list_projects', 'create_project', 'get_project', 'save_script', 'get_breakdown', 'save_breakdown',
-      'seed_composition', 'get_composition', 'save_composition', 'list_references', 'create_upload_url', 'queue_blockout', 'get_job', 'get_blockout']);
+      'seed_composition', 'get_composition', 'save_composition', 'list_references', 'create_upload_url', 'queue_blockout', 'get_job', 'get_blockout',
+      'get_transcript', 'transcribe_recording', 'save_plan', 'analyze_beats', 'snapshot']);
     assert.ok(tools.every(t => t.description && t.annotations));
     await client.close();
   });
@@ -88,6 +90,18 @@ test('only the caller\'s projects', async () => {
   assert.deepEqual(list.structuredContent.projects.map((p: Row) => p.id), [MINE]);
   const theirs = await call(client, 'get_project', { project_id: THEIRS });
   assert.equal(theirs.isError, true);
+  await client.close();
+});
+
+test('a project keeps the track it was created with', async () => {
+  const client = await connect('modern');
+  const studio = await call(client, 'create_project', { name: 'Hook test', track: 'studio' });
+  const plain = await call(client, 'create_project', { name: 'Plain' });
+  assert.equal(plain.structuredContent.project.track, 'production');
+  const got = await call(client, 'get_project', { project_id: studio.structuredContent.project.id });
+  assert.equal(got.structuredContent.project.track, 'studio');
+  const bad = await call(client, 'create_project', { name: 'Bad', track: 'film' });
+  assert.equal(bad.isError, true);
   await client.close();
 });
 
@@ -137,7 +151,7 @@ test('saves refuse stale versions', async () => {
 
 test('guides come from the server', async () => {
   const client = await connect('modern');
-  for (const topic of ['breakdown', 'script', 'composition', 'blockout']) {
+  for (const topic of ['breakdown', 'script', 'composition', 'blockout', 'studio']) {
     const guide = await call(client, 'get_guide', { topic });
     assert.ok(guide.structuredContent.guide.length > 500, topic); // Claude Code reads structuredContent only
   }
@@ -156,5 +170,49 @@ test('save_composition runs hyperframes check before writing', { timeout: 240_00
   assert.equal(saved.structuredContent.checked, true);
   const after = await call(client, 'get_composition', { project_id: MINE });
   assert.equal(after.structuredContent.hash, saved.structuredContent.hash);
+  await client.close();
+});
+
+test('studio: transcript, beat plan, uploads and beats', { timeout: 120_000 }, async () => {
+  const client = await connect('modern');
+  const { structuredContent: { project } } = await call(client, 'create_project', { name: 'Talking head', track: 'studio' });
+  const none = await call(client, 'get_transcript', { project_id: project.id });
+  assert.equal(none.isError, true);
+
+  const dir = projectDir(ME, project.id);
+  await mkdir(join(dir, 'media'), { recursive: true });
+  await writeFile(join(dir, 'transcript.json'), JSON.stringify([{ text: 'Namaste', start: 0.2, end: 0.6 }, { text: 'dosto.', start: 0.7, end: 1.1 }]));
+  const transcript = await call(client, 'get_transcript', { project_id: project.id });
+  assert.equal(transcript.structuredContent.words, 2);
+  assert.equal(transcript.structuredContent.transcript, '0.20 0.60 Namaste\n0.70 1.10 dosto.');
+
+  const plan = await call(client, 'save_plan', { project_id: project.id, plan: 'Brief: one line of light.\n0-2 s · Namaste · the line wakes · whoosh' });
+  assert.equal(plan.structuredContent.saved, true);
+  const got = await call(client, 'get_project', { project_id: project.id });
+  assert.match(got.structuredContent.project.beat_plan, /one line of light/);
+  assert.deepEqual(got.structuredContent.transcript, { words: 2, seconds: 1.1 });
+
+  const noShot = await call(client, 'create_upload_url', { project_id: project.id, name: 'a.jpg' });
+  assert.equal(noShot.isError, true);
+  const wrongKind = await call(client, 'create_upload_url', { project_id: project.id, target: 'media', name: 'cover.jpg' });
+  assert.equal(wrongKind.isError, true);
+  const upload = await call(client, 'create_upload_url', { project_id: project.id, target: 'media', name: 'whoosh.wav' });
+  assert.equal(upload.structuredContent.path, 'media/whoosh.wav');
+  const missing = await call(client, 'transcribe_recording', { project_id: project.id, file: 'take.mp4' });
+  assert.equal(missing.isError, true);
+
+  // A click every half second: 120 BPM.
+  execFileSync('ffmpeg', ['-v', 'error', '-y', '-f', 'lavfi', '-i', "aevalsrc='if(lt(mod(t,0.5),0.03),sin(2*PI*880*t),0)':d=8", join(dir, 'media', 'clicks.wav')]);
+  const beats = await call(client, 'analyze_beats', { project_id: project.id, file: 'clicks.wav' });
+  assert.equal(beats.isError, undefined, beats.content[0].text);
+  assert.ok(beats.structuredContent.count >= 10);
+  await client.close();
+});
+
+test('snapshot returns real frames of the saved composition', { timeout: 240_000 }, async () => {
+  const client = await connect('modern');
+  const frames = await call(client, 'snapshot', { project_id: MINE, at: [0.5, 2] });
+  assert.equal(frames.isError, undefined, frames.content[0].text);
+  assert.equal(frames.content.filter((c: Row) => c.type === 'image').length, 2);
   await client.close();
 });

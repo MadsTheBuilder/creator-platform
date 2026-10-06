@@ -5,6 +5,7 @@ import { breakdown } from './breakdown.ts';
 import { JobError } from './job-error.ts';
 import { script } from './script.ts';
 import { startServer } from './server.ts';
+import { transcribe } from './transcribe.ts';
 
 const { SUPABASE_URL, SUPABASE_SECRET_KEY } = process.env;
 if (!SUPABASE_URL || !SUPABASE_SECRET_KEY || !(process.env.ANTHROPIC_API_KEY || process.env.ANTHROPIC_AUTH_TOKEN)) {
@@ -13,7 +14,8 @@ if (!SUPABASE_URL || !SUPABASE_SECRET_KEY || !(process.env.ANTHROPIC_API_KEY || 
 const db = createClient(SUPABASE_URL, SUPABASE_SECRET_KEY, { auth: { persistSession: false, autoRefreshToken: false } });
 const claude = new Anthropic();
 // Blockouts are claimed by the creator's own PC (the Blender bridge), never here.
-const KINDS = ['breakdown', 'script'];
+// ponytail: one loop, so a long transcription delays scripts and breakdowns; give it its own loop if that hurts.
+const KINDS = ['breakdown', 'script', 'transcribe'];
 
 async function finish(id: string, fields: { status: 'done' | 'failed'; output?: unknown; error?: string }) {
   const { error } = await db.from('video_jobs').update({ ...fields, updated_at: new Date().toISOString() }).eq('id', id);
@@ -28,7 +30,7 @@ async function next(): Promise<boolean> {
   if (!job) return false;
   console.log(`job ${job.id} ${job.kind} started`);
   try {
-    const output = job.kind === 'breakdown' ? await breakdown(claude, job.input) : await script(claude, job.input);
+    const output = job.kind === 'breakdown' ? await breakdown(claude, job.input) : job.kind === 'transcribe' ? await transcribe(job) : await script(claude, job.input);
     await finish(job.id, { status: 'done', output });
     console.log(`job ${job.id} done`);
   } catch (cause) {

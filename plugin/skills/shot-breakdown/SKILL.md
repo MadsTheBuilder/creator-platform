@@ -1,6 +1,6 @@
 ---
 name: shot-breakdown
-description: Break a Content Engine project's script into a director's shot breakdown and save it to the project (Shots step), with camera position, angle, lens, lighting, movement and timing for every shot. Use when the creator wants a shot list, storyboard, breakdown or coverage plan for one of their Content Engine / Creator Platform projects, or wants to revise one.
+description: Break a Content Engine project's script into a director's shot breakdown and save it to the project (Shots step), with camera position, angle, lens, lighting, movement and timing for every shot. Use when the creator wants a shot list, shot breakdown or coverage plan for one of their Content Engine / Creator Platform Production projects, or wants to revise one.
 ---
 
 The playbook lives on the server so it always matches the site. Follow it, not your own defaults.

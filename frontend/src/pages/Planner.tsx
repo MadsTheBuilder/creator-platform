@@ -1,12 +1,12 @@
 import { useEffect, useRef, useState, type DragEvent, type FormEvent } from 'react';
 import { CaretLeft, CaretRight, CheckCircle, InstagramLogo, LinkBreak, LinkSimple, Plus, Sparkle, TiktokLogo, Tray, X, YoutubeLogo, type Icon } from '@phosphor-icons/react';
 import { usePlanChanges, useSession } from '../data/hooks';
-import { STATUSES, addDays, createItem, deleteItem, linkedProjects, listPlan, matchCandidates, monthGrid, toDay, updateItem, type Platform, type PlanFields, type PlanItem, type Status, type Upload } from '../data/plan';
+import { STATUSES, addDays, progressLabel, createItem, deleteItem, linkedProjects, listPlan, matchCandidates, monthGrid, toDay, updateItem, type Platform, type PlanFields, type PlanItem, type Status, type Upload } from '../data/plan';
 import { createProject, listProjects, type Project } from '../data/projects';
 import { youtubeRequest, type YouTubeSnapshot } from '../data/youtube';
 import { socialRequest, type SocialSnapshot } from '../data/social';
 import { Button, Empty, Thumb } from '../components/ui';
-import type { Step } from './Playground';
+import { TRACKS, type Track } from '../data/tracks';
 
 const PLATFORMS: Record<Platform, { label: string; icon: Icon }> = {
   youtube: { label: 'YouTube', icon: YoutubeLogo }, instagram: { label: 'Instagram', icon: InstagramLogo }, tiktok: { label: 'TikTok', icon: TiktokLogo },
@@ -18,7 +18,7 @@ const narrow = () => window.matchMedia('(max-width: 767px)').matches;
 
 type Editing = { item: PlanItem } | { day: string | null } | null;
 
-export function Planner({ onOpenProject, onConnections }: { onOpenProject: (id: string, step: Step) => void; onConnections: () => void }) {
+export function Planner({ onOpenProject, onConnections }: { onOpenProject: (id: string) => void; onConnections: () => void }) {
   const session = useSession();
   const today = toDay(new Date());
   const [month, setMonth] = useState(() => { const d = new Date(); return { year: d.getFullYear(), month: d.getMonth() }; });
@@ -65,7 +65,7 @@ export function Planner({ onOpenProject, onConnections }: { onOpenProject: (id: 
     return <li key={item.id}>
       <button className={`plan-card status-${item.status}`} draggable onDragStart={e => { e.dataTransfer.setData('text/plain', item.id); e.dataTransfer.effectAllowed = 'move'; }} onClick={() => setEditing({ item })}>
         <span className="plan-card-title">{P && <P size={14} aria-label={PLATFORMS[item.platform!].label}/>}{item.status === 'posted' && <CheckCircle size={14} weight="fill" aria-label="Posted"/>}<span>{item.title}</span></span>
-        <small>{item.scheduled_time && <>{item.scheduled_time.slice(0, 5)} · </>}{STATUSES.find(s => s.status === item.status)!.label}{item.progress && <> · {item.progress.breakdown ? 'Breakdown ✓' : item.progress.script ? 'Script ✓' : 'In Playground'}</>}</small>
+        <small>{item.scheduled_time && <>{item.scheduled_time.slice(0, 5)} · </>}{STATUSES.find(s => s.status === item.status)!.label}{item.progress && <> · {progressLabel(item.progress)}</>}</small>
       </button>
     </li>;
   };
@@ -157,7 +157,7 @@ function DayBoard({ day, items, error, onClose, onStatus, onOpen, onAdd }: { day
               return <li key={item.id} className={`plan-board-card status-${item.status}`} draggable onDragStart={e => { e.dataTransfer.setData('text/plain', item.id); e.dataTransfer.effectAllowed = 'move'; }}>
                 <button className="plan-board-open" onClick={() => onOpen(item)}>
                   <span className="plan-card-title">{P && <P size={14} aria-label={PLATFORMS[item.platform!].label}/>}<span>{item.title}</span></span>
-                  {(item.scheduled_time || item.progress) && <small>{item.scheduled_time?.slice(0, 5)}{item.scheduled_time && item.progress && ' · '}{item.progress && (item.progress.breakdown ? 'Breakdown ✓' : item.progress.script ? 'Script ✓' : 'In Playground')}</small>}
+                  {(item.scheduled_time || item.progress) && <small>{item.scheduled_time?.slice(0, 5)}{item.scheduled_time && item.progress && ' · '}{item.progress && progressLabel(item.progress)}</small>}
                 </button>
                 <div className="plan-board-moves">
                   <button disabled={i === 0} onClick={() => onStatus(item.id, STATUSES[i - 1].status)} aria-label={i === 0 ? 'Already at the first stage' : `Move “${item.title}” back to ${STATUSES[i - 1].label}`}><CaretLeft size={14}/></button>
@@ -172,15 +172,16 @@ function DayBoard({ day, items, error, onClose, onStatus, onOpen, onAdd }: { day
   </dialog>;
 }
 
-function ItemDialog({ editing, onClose, onSaved, onDeleted, onOpenProject }: { editing: Editing; onClose: () => void; onSaved: (item: PlanItem) => void; onDeleted: (id: string) => void; onOpenProject: (id: string, step: Step) => void }) {
+function ItemDialog({ editing, onClose, onSaved, onDeleted, onOpenProject }: { editing: Editing; onClose: () => void; onSaved: (item: PlanItem) => void; onDeleted: (id: string) => void; onOpenProject: (id: string) => void }) {
   const ref = useRef<HTMLDialogElement>(null);
   const [busy, setBusy] = useState(false), [error, setError] = useState('');
   const [matches, setMatches] = useState<Upload[] | 'failed' | null>(null);
   const [confirming, setConfirming] = useState(false);
   const [picker, setPicker] = useState<{ projects: Project[]; linked: Map<string, string> } | null>(null);
+  const [choosing, setChoosing] = useState(false); // "Start in Playground" asks which track first
   // Linking or unlinking keeps the dialog open, so it shows the saved item rather than the one it opened with.
   const [live, setLive] = useState<PlanItem | null>(null);
-  useEffect(() => { setError(''); setMatches(null); setConfirming(false); setPicker(null); setLive(null); if (editing) ref.current?.showModal(); else ref.current?.close(); }, [editing]);
+  useEffect(() => { setError(''); setMatches(null); setConfirming(false); setPicker(null); setChoosing(false); setLive(null); if (editing) ref.current?.showModal(); else ref.current?.close(); }, [editing]);
   const item = editing && 'item' in editing ? live ?? editing.item : null;
 
   async function run(work: () => Promise<void>) {
@@ -193,12 +194,13 @@ function ItemDialog({ editing, onClose, onSaved, onDeleted, onOpenProject }: { e
     const fields = { title: v('title') ?? '', notes: v('notes') ?? '', platform: v('platform'), format: v('format'), status: v('status'), scheduled_on: v('scheduled_on'), scheduled_time: v('scheduled_time') } as PlanFields & { title: string };
     void run(async () => { onSaved(item ? await updateItem(item.id, fields) : await createItem(fields)); onClose(); });
   }
-  const startProject = (item: PlanItem) => run(async () => {
-    const project = await createProject(item.title.slice(0, 80));
+  const startProject = (item: PlanItem, track: Track) => run(async () => {
+    const project = await createProject(item.title.slice(0, 80), track);
     onSaved(await updateItem(item.id, { project_id: project.id, status: item.status === 'idea' ? 'scripting' : item.status }));
-    onOpenProject(project.id, 'script');
+    onOpenProject(project.id);
   });
   const openPicker = () => run(async () => {
+    setChoosing(false);
     const [projects, linked] = await Promise.all([listProjects(), linkedProjects()]);
     setPicker({ projects, linked });
   });
@@ -240,11 +242,11 @@ function ItemDialog({ editing, onClose, onSaved, onDeleted, onOpenProject }: { e
       {item && <div className="plan-extra">
         {item.project_id
           ? <span className="plan-pair">
-            <Button type="button" onClick={() => onOpenProject(item.project_id!, 'script')}><Sparkle size={16}/>Open in Playground</Button>
+            <Button type="button" onClick={() => onOpenProject(item.project_id!)}><Sparkle size={16}/>Open in Playground</Button>
             <button type="button" className="button plan-icon" disabled={busy} onClick={() => void link(item, null)} aria-label="Unlink the Playground project" title="Unlink the Playground project"><LinkBreak size={16}/></button>
           </span>
           : <span className="plan-pair">
-            <Button type="button" disabled={busy} onClick={() => void startProject(item)}><Sparkle size={16}/>Start in Playground</Button>
+            <Button type="button" disabled={busy} aria-expanded={choosing} onClick={() => { setPicker(null); setChoosing(!choosing); }}><Sparkle size={16}/>Start in Playground</Button>
             <button type="button" className={`button plan-icon ${picker ? 'selected' : ''}`} disabled={busy} aria-expanded={!!picker} onClick={() => picker ? setPicker(null) : void openPicker()} aria-label="Link an existing Playground project" title="Link an existing Playground project"><LinkSimple size={16}/></button>
           </span>}
         {item.status === 'posted'
@@ -254,12 +256,18 @@ function ItemDialog({ editing, onClose, onSaved, onDeleted, onOpenProject }: { e
             ? <Button type="button" disabled={busy} onClick={() => void findUpload(item)}><CheckCircle size={16}/>Mark posted</Button>
             : <Button type="button" disabled={busy} onClick={() => void markPosted(item)}><CheckCircle size={16}/>Mark posted</Button>}
       </div>}
+      {item && choosing && !item.project_id && <div className="plan-matches">
+        <p className="muted">How will it be made? A project keeps its track.</p>
+        <ul>{(Object.keys(TRACKS) as Track[]).map(t => <li key={t}><button type="button" className="plan-match" disabled={busy} onClick={() => void startProject(item, t)}>
+          <span><strong>{TRACKS[t].label}</strong><small>{TRACKS[t].blurb}</small></span>
+        </button></li>)}</ul>
+      </div>}
       {item && picker && <div className="plan-matches">
         <p className="muted">{picker.projects.length ? 'Which project is this video?' : 'You have no Playground projects yet.'}</p>
         {!!picker.projects.length && <ul>{picker.projects.map(p => {
           const taken = picker.linked.get(p.id);
           return <li key={p.id}><button type="button" className="plan-match" disabled={busy || !!taken} onClick={() => void link(item, p.id)}>
-            <span><strong>{p.name}</strong><small>{taken ? `Linked to “${taken}”` : `${p.script.trim() ? 'Script written' : 'No script yet'} · Updated ${new Date(p.updated_at).toLocaleDateString()}`}</small></span>
+            <span><strong>{p.name}</strong><small>{taken ? `Linked to “${taken}”` : `${TRACKS[p.track].label} · ${p.script.trim() ? 'Script written' : 'No script yet'} · Updated ${new Date(p.updated_at).toLocaleDateString()}`}</small></span>
           </button></li>;
         })}</ul>}
       </div>}

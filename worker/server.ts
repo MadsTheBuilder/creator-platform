@@ -13,7 +13,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { createStudioServer } from 'hyperframes/dist/studioServer-PXNJXHMV.js';
 import { parseStoryboard } from '../frontend/src/storyboard/composition.ts';
 import { mountMcp } from './mcp.ts';
-import { BLOCKOUT_FILE, DATA, ensureProject, isBlank, latestBreakdown, listReferences, local, MB, owns as ownsProject, projectDir,
+import { BLOCKOUT_FILE, DATA, ensureProject, hasRoom, isBlank, latestBreakdown, listMedia, listReferences, local, MB, mediaPath, owns as ownsProject, projectDir,
   readComposition, refPath, SAFE_NAME, saveBody, sha256, UploadError, writeComposition } from './project-files.ts';
 
 const SITE = local('../frontend/dist');
@@ -142,6 +142,27 @@ export function startServer(db: SupabaseClient, port: number) {
   });
   app.delete('/api/playground/:id/references/:shot/:name', async c => {
     const path = await owns(c.get('user'), c.req.param('id')) ? refPathFor(c) : null;
+    if (!path) return c.json({ error: 'not found' }, 404);
+    await rm(path, { force: true });
+    return c.json({ ok: true });
+  });
+  // Studio track: the recording (then transcribed by a 'transcribe' job), music and sound effects.
+  const MEDIA_LIMIT = 1024 * MB;
+  app.get('/api/playground/:id/media', async c => {
+    if (!await owns(c.get('user'), c.req.param('id'))) return c.json({ error: 'not found' }, 404);
+    return c.json(await listMedia(c.get('user'), c.req.param('id')));
+  });
+  app.put('/api/playground/:id/media/:name', async c => {
+    if (!await owns(c.get('user'), c.req.param('id'))) return c.json({ error: 'not found' }, 404);
+    const path = mediaPath(c.get('user'), c.req.param('id'), c.req.param('name'));
+    if (!path) return c.json({ error: 'Video (MP4, MOV, WebM) or audio (M4A, MP3, WAV, AAC, OGG) only, with a plain file name.' }, 400);
+    if (!await hasRoom(Number(c.req.header('content-length')) || MEDIA_LIMIT)) return c.json({ error: 'The server is out of space for uploads right now. Please try again later.' }, 507);
+    try { await saveBody(c.req.raw, path, MEDIA_LIMIT); }
+    catch (e) { return c.json({ error: e instanceof UploadError ? e.message : 'The upload failed. Please try again.' }, 400); }
+    return c.json({ ok: true });
+  });
+  app.delete('/api/playground/:id/media/:name', async c => {
+    const path = await owns(c.get('user'), c.req.param('id')) ? mediaPath(c.get('user'), c.req.param('id'), c.req.param('name')) : null;
     if (!path) return c.json({ error: 'not found' }, 404);
     await rm(path, { force: true });
     return c.json({ ok: true });

@@ -1,4 +1,5 @@
 import { supabase } from './supabase';
+import type { Track } from './tracks';
 
 export type Platform = 'youtube' | 'instagram' | 'tiktok';
 export type Format = 'long' | 'short';
@@ -13,8 +14,13 @@ export type PlanItem = {
   id: string; title: string; notes: string; platform: Platform | null; format: Format | null; status: Status;
   scheduled_on: string | null; scheduled_time: string | null; project_id: string | null; post: Post | null; created_at: string;
   // Linked Playground project's progress, filled in by listPlan.
-  progress?: { script: boolean; breakdown: boolean };
+  progress?: Progress;
 };
+export type Progress = { track: Track; script: boolean; breakdown: boolean; recording: boolean };
+// The furthest step a linked project has reached, in its own track's terms.
+export const progressLabel = (p: Progress) => p.track === 'studio'
+  ? p.recording ? 'Recording ✓' : p.script ? 'Script ✓' : 'In Playground'
+  : p.breakdown ? 'Breakdown ✓' : p.script ? 'Script ✓' : 'In Playground';
 export type PlanFields = Partial<Pick<PlanItem, 'title' | 'notes' | 'platform' | 'format' | 'status' | 'scheduled_on' | 'scheduled_time' | 'project_id' | 'post'>>;
 
 const COLUMNS = 'id,title,notes,platform,format,status,scheduled_on,scheduled_time,project_id,post,created_at';
@@ -24,19 +30,19 @@ const now = () => new Date().toISOString();
 // Items scheduled between two days (inclusive), plus the whole Ideas inbox.
 export async function listPlan(from: string, to: string): Promise<PlanItem[]> {
   const db = client();
-  const { data, error } = await db.from('plan_items').select(`${COLUMNS},projects(script)`)
+  const { data, error } = await db.from('plan_items').select(`${COLUMNS},projects(script,track)`)
     .or(`scheduled_on.is.null,and(scheduled_on.gte.${from},scheduled_on.lte.${to})`)
     .order('scheduled_time', { ascending: true, nullsFirst: true }).order('created_at', { ascending: false });
   if (error) throw new Error('Could not load your plan.');
   const ids = data.flatMap(i => i.project_id ? [i.project_id] : []);
-  const broken = new Set<string>();
+  const done = new Set<string>(); // "<kind>:<project id>" for each finished breakdown / transcription
   if (ids.length) {
-    const { data: jobs } = await db.from('video_jobs').select('project_id').eq('kind', 'breakdown').eq('status', 'done').in('project_id', ids);
-    jobs?.forEach(j => broken.add(j.project_id));
+    const { data: jobs } = await db.from('video_jobs').select('kind,project_id').in('kind', ['breakdown', 'transcribe']).eq('status', 'done').in('project_id', ids);
+    jobs?.forEach(j => done.add(`${j.kind}:${j.project_id}`));
   }
   return data.map(({ projects, ...item }) => {
-    const project = projects as unknown as { script: string } | null;
-    return { ...item, progress: project ? { script: !!project.script.trim(), breakdown: broken.has(item.project_id!) } : undefined } as PlanItem;
+    const project = projects as unknown as { script: string; track: Track } | null;
+    return { ...item, progress: project ? { track: project.track, script: !!project.script.trim(), breakdown: done.has(`breakdown:${item.project_id}`), recording: done.has(`transcribe:${item.project_id}`) } : undefined } as PlanItem;
   });
 }
 

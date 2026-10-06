@@ -1,7 +1,7 @@
 // Project storage shared by the site's routes (server.ts) and the MCP tools (mcp.ts), so the two can't drift.
 import { createHash } from 'node:crypto';
 import { createWriteStream, existsSync } from 'node:fs';
-import { copyFile, mkdir, readdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
+import { copyFile, mkdir, readdir, readFile, rename, rm, stat, statfs, writeFile } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import { Readable, Transform } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
@@ -16,6 +16,8 @@ export const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{1
 export const SAFE_NAME = /^\w[\w .()-]{0,120}$/;
 export const REFERENCE = /\.(jpe?g|png|webp|gif|mp4|mov|webm)$/i;
 export const BLOCKOUT_FILE = /\.(mp4|png|blend|json)$/i;
+// Studio track recordings, voiceovers, music and sound effects, in <project>/media/.
+export const MEDIA = /\.(mp4|mov|webm|m4a|mp3|wav|aac|ogg)$/i;
 export const MB = 1024 * 1024;
 const BLANK_MARK = '<!-- playground:blank -->';
 const BLANK = `<!doctype html>${BLANK_MARK}
@@ -86,6 +88,29 @@ export async function listReferences(user: string, id: string) {
     if (shot) for (const name of await readdir(join(root, dir))) if (REFERENCE.test(name)) refs.push({ shot, name });
   }
   return refs;
+}
+
+// Recordings, music and sound effects in <project>/media/ (the editor sees them too).
+export function mediaPath(user: string, id: string, name: string) {
+  return SAFE_NAME.test(name) && MEDIA.test(name) ? join(projectDir(user, id), 'media', name) : null;
+}
+export async function listMedia(user: string, id: string) {
+  const dir = join(projectDir(user, id), 'media');
+  const names = (await readdir(dir).catch(() => [] as string[])).filter(n => MEDIA.test(n));
+  return Promise.all(names.map(async name => ({ name, bytes: (await stat(join(dir, name))).size })));
+}
+// The Studio track's word timings, written by `hyperframes transcribe` (null until a recording is transcribed).
+export type Word = { text: string; start: number; end: number };
+export async function readTranscript(user: string, id: string): Promise<Word[] | null> {
+  try { const words = JSON.parse(await readFile(join(projectDir(user, id), 'transcript.json'), 'utf8')); return Array.isArray(words) ? words : null; }
+  catch { return null; }
+}
+
+// Room on the volume for `bytes` more, keeping a margin: a full disk breaks every project on it.
+export async function hasRoom(bytes: number) {
+  await mkdir(DATA, { recursive: true });
+  const fs = await statfs(DATA);
+  return fs.bavail * fs.bsize - bytes > 500 * MB;
 }
 
 // Stream a request body to disk (never whole in memory), capped at `limit` bytes.

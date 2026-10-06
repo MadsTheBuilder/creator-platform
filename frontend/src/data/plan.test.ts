@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { addDays, matchCandidates, monthGrid } from './plan';
+import { addDays, matchCandidates, monthGrid, progressLabel } from './plan';
 
 describe('calendar days', () => {
   it('lays a month out in six Monday-first weeks', () => {
@@ -27,5 +27,15 @@ describe('matching a posted item to its upload', () => {
   });
   it('considers every upload for an unscheduled item', () => {
     expect(matchCandidates({ title: 'Something else', scheduled_on: null }, uploads).map(u => u.id)).toEqual(['title', 'near', 'old', 'undated']);
+  });
+});
+
+describe("a linked project's progress", () => {
+  const none = { script: false, breakdown: false, recording: false };
+  it("reads in its own track's terms", () => {
+    expect(progressLabel({ ...none, track: 'production', script: true, breakdown: true })).toBe('Breakdown ✓');
+    expect(progressLabel({ ...none, track: 'studio', breakdown: true })).toBe('In Playground');
+    expect(progressLabel({ ...none, track: 'studio', script: true, recording: true })).toBe('Recording ✓');
+    expect(progressLabel({ ...none, track: 'studio', script: true })).toBe('Script ✓');
   });
 });

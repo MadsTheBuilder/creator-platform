@@ -15,3 +15,24 @@ export async function api<T>(path: string, init?: RequestInit): Promise<T> {
   if (!res.ok) throw new Error(body?.error ?? 'Something went wrong. Please try again.');
   return body as T;
 }
+
+// A large file to the app server, reporting progress (fetch can't report upload progress).
+export function uploadFile(path: string, file: File, onProgress: (fraction: number) => void): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('PUT', path);
+    xhr.setRequestHeader('Content-Type', file.type || 'application/octet-stream');
+    xhr.upload.onprogress = e => { if (e.lengthComputable) onProgress(e.loaded / e.total); };
+    xhr.onload = () => {
+      if (xhr.status < 300) return resolve();
+      let message = 'The upload failed. Please try again.';
+      try { message = JSON.parse(xhr.responseText).error ?? message; } catch { /* keep the default */ }
+      reject(new Error(message));
+    };
+    xhr.onerror = () => reject(new Error('The upload was interrupted. Check your connection and try again.'));
+    xhr.send(file);
+  });
+}
+
+// A file name the server accepts (letters, digits, spaces, . ( ) -), keeping the extension.
+export const safeName = (name: string, fallback: string) => name.replace(/[^\w .()-]/g, '_').slice(-120).replace(/^[^\w]+/, '') || fallback;

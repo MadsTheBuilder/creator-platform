@@ -6,7 +6,8 @@ export type JobStatus = 'queued' | 'running' | 'done' | 'failed';
 export type BreakdownJob = { id: string; kind: 'breakdown'; status: JobStatus; input: { script: string; vision: Record<string, unknown>; source?: 'mcp' }; output: Storyboard | null; error: string | null };
 export type ScriptJob = { id: string; kind: 'script'; status: JobStatus; input: { idea: string; platform: string; length: number; tone: string }; output: { title: string; script: string } | null; error: string | null };
 export type BlockoutJob = { id: string; kind: 'blockout'; status: JobStatus; input: { breakdown_id: string; shots: number[] }; output: { files: string[]; shots: number[] } | null; error: string | null };
-export type Job = BreakdownJob | ScriptJob | BlockoutJob;
+export type TranscribeJob = { id: string; kind: 'transcribe'; status: JobStatus; input: { file: string; language?: 'hi' | 'en' }; output: { file: string; seconds: number; words: number; video: boolean } | null; error: string | null };
+export type Job = BreakdownJob | ScriptJob | BlockoutJob | TranscribeJob;
 
 const COLUMNS = 'id,kind,status,input,output,error';
 function client() { if (!supabase) throw new Error('Sign-in has not been configured for this installation.'); return supabase; }
