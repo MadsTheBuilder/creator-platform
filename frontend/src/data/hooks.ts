@@ -45,6 +45,20 @@ export function useProjectChanges(projectId: string | undefined) {
   return version;
 }
 
+// Counts changes to the creator's plan made anywhere else (another tab, later Trends). Same channel
+// naming rule as useProjectChanges.
+export function usePlanChanges(userId: string | undefined) {
+  const [version, setVersion] = useState(0);
+  useEffect(() => {
+    if (!supabase || !userId) return;
+    const channel = supabase.channel(`plan-${userId}-${crypto.randomUUID()}`)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'plan_items', filter: `user_id=eq.${userId}` }, () => setVersion(v => v + 1))
+      .subscribe();
+    return () => { supabase!.removeChannel(channel); };
+  }, [userId]);
+  return version;
+}
+
 // Keep the app server's session cookie in step with Supabase. 'ready', 'connecting' or an error.
 export function useAppServer() {
   const [state, setState] = useState('connecting');

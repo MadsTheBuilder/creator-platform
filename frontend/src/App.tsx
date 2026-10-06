@@ -3,19 +3,21 @@ import { SquaresFour, TrendUp, CalendarBlank, Sparkle, Recycle, Plugs, Magnifyin
 import { Overview } from './pages/Overview';
 import { Connections } from './pages/Connections';
 import { Playground, STEPS, type Step } from './pages/Playground';
+import { Planner } from './pages/Planner';
 // Modules without a route are on the roadmap (see CLAUDE.md) and render as "Soon".
 const nav=[
   {label:'Overview',icon:SquaresFour,route:'Overview'},
   {label:'Trends & News',icon:TrendUp},
-  {label:'Planner',icon:CalendarBlank},
+  {label:'Planner',icon:CalendarBlank,route:'Planner'},
   {label:'Playground',icon:Sparkle,route:'Playground'},
   {label:'Repurpose',icon:Recycle},
   {label:'Connections',icon:Plugs,route:'Connections'},
 ];
 const stepIcons:Record<Step,Icon>={script:FileText,shots:FilmStrip,storyboard:Images,'3d':Cube,edit:Scissors};
-const routes=['Overview','Playground','Connections'];
+const routes=['Overview','Planner','Playground','Connections'];
 const headings:Record<string,[string,string]>={
   Overview:['Channel performance','Real numbers from the platforms you own. Nothing estimated.'],
+  Planner:['Content planner','Line up the next few weeks. Drag ideas onto days.'],
   Connections:['Connections','Sign in, then connect your channels to track their performance.'],
 };
 type Location={route:string;project?:string;step:Step};
@@ -61,6 +63,7 @@ export function App(){
         <div className={`content ${editing?'content-editor':''}`}>
         {!playground&&<div className="page-heading"><h1>{headings[route][0]}</h1><p>{headings[route][1]}</p></div>}
         {route==='Overview'?<Overview search={search} onConnections={()=>navigate('Connections')}/>
+          :route==='Planner'?<Planner onOpenProject={openProject} onConnections={()=>navigate('Connections')}/>
           :playground?<Playground projectId={loc.project} step={loc.step} onOpen={openProject} onConnections={()=>navigate('Connections')}/>
           :<Connections/>}
         </div>

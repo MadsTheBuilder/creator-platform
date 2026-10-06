@@ -46,9 +46,13 @@ Never edit the source folders. Copy what's needed into this repo.
 - **2026-10-06 — App service live** at https://worker-production-b2a3.up.railway.app (volume `worker-volume` at `/data`, 500 MB). Supabase Auth's Site URL points at it, and `YOUTUBE_APP_ORIGINS` (shared by all three connectors) lists it alongside the two local 5173 origins.
 - **2026-10-06 — MCP server + Claude/Codex plugin (option B for Opus-level output).** The creator's own Claude or Codex does the generating; the platform supplies data, playbooks and storage. `/mcp` on the app service (`worker/mcp.ts`, MCP spec 2026-07-28 via `@modelcontextprotocol/server` v2, stateless, 2025-era fallback) with tools for projects, script, breakdown, Studio composition, references and blockouts. Auth is Supabase Auth's OAuth 2.1 server (consent page `/oauth/consent`, dynamic client registration on). Tools reuse the site's own code (`worker/project-files.ts`, `parseStoryboard`, `worker/schemas.ts`) and serve the playbooks (`get_guide`), so they follow site changes; Realtime on `projects` / `video_jobs` shows MCP writes live. Plugin for both clients in `plugin/` (marketplaces at `.claude-plugin/` and `.agents/plugins/`). Setup: `docs/mcp-setup.md`.
 
+- **2026-10-06 — Planner (module 3) built on one table, `plan_items`.** A month grid plus a two-week Agenda, with an Ideas inbox for unscheduled items (`scheduled_on` null); items move between days and the inbox by drag-and-drop or the item's date field. Days are plain `date`s so time zones never shift them. Posting stays manual: the creator ticks "Mark posted" and the Planner matches the item to the real upload from the connected YouTube / Instagram / TikTok (the connectors' existing `sync`, nothing new to authorise), storing only the chosen post's link and title. An item can optionally link to one Playground project ("Start in Playground", or the chain-link button to pick an existing project; a project links to at most one item); its card then shows that project's progress. Clicking a day opens its board: one column per stage, cards move by drag or arrow buttons (touch and keyboard). Trends will write ideas into the same table (add a `source` column then). No auto-publishing.
 - **2026-10-06 — Storyboard is its own Playground step** (dock: Script, Shot breakdown, Storyboard, 3D visual, Video edit). The breakdown no longer seeds the editor: the Studio opens empty, and storyboards (2D HyperFrames panels per shot) will live on the Storyboard step. `/api/playground/:id/seed` stays for that.
+- **2026-10-06 — The Playground has two tracks, chosen per project: Film and Video** (working names). **Film** is the current production flow for footage that is shot or AI-generated (Script, Shot breakdown, Storyboard, 3D visual, Video edit). Its storyboard stays essential because footage is the expensive step. **Video** is for code-rendered motion graphics built around the creator's own recording or script (Recording/Script, Direction, Build, Video edit). Its timing comes from the transcript or the music's beats, with no storyboard or blockout. Both share the project, script, references, MCP and the Studio editor. Video builds come from the creator's own Opus over MCP, never the free worker model. A calibration test matched an Opus + HyperFrames reference short on 0.8.134 with no new dependencies: one author, one continuous world, a named look, sound on every hit, and a snapshot critique.
 
 ## Open decisions (ask before assuming)
+
+- **Where uploaded recordings live** (Video track): the `/data` volume is 500 MB with no backup, so it's Supabase Storage vs a bigger volume. Decide before building uploads.
 
 - **Higgsfield access**: API key vs MCP, and which models/workflows map to modules 5 and 6.
 - **Creator profile (onboarding analysis)**: leaning `creator-profile` skill over `ig-profile`. It has to be adapted for the deployed app: OAuth data in place of yt-dlp, Claude API calls in place of subagents. Still open is how we get the video files. The existing connections cover Instagram (Reel `media_url`). YouTube and TikTok APIs don't return files, so the choice is creator uploads vs adding the YouTube `youtube.force-ssl` scope for transcripts.
@@ -68,11 +72,11 @@ Record each decision above once it's made.
 
 ```
 frontend/                 React + Vite app (run commands from here)
-  src/App.tsx             Shell + hash routing (#overview, #connections, #playground[/<project>/<step>]) + Playground dock
-  src/pages/              Overview (metrics), Playground (projects), Connections (sign-in + connect)
+  src/App.tsx             Shell + hash routing (#overview, #planner, #connections, #playground[/<project>/<step>]) + Playground dock
+  src/pages/              Overview (metrics), Planner (calendar + Ideas inbox), Playground (projects), Connections (sign-in + connect)
   src/pages/playground/   Script, Shots (breakdown), Storyboard (2D HyperFrames storyboards, generation pending), Visual3D (references + blockouts), Edit (Studio iframe)
   src/components/         GoogleAccount, YouTube/Social connection, per-platform overviews, ui
-  src/data/               supabase client, connector helpers, video job queue, projects, app-server session, metric math (+ tests)
+  src/data/               supabase client, connector helpers, video job queue, projects, plan (calendar days, upload matching), app-server session, metric math (+ tests)
   src/storyboard/         composition.ts: storyboard -> HyperFrames HTML + validation (seeds the editor). Shared with the worker:
                           no imports, erasable TypeScript only (Node runs it with type stripping)
 worker/                   Railway app service (Node 24, runs .ts directly)
@@ -87,7 +91,7 @@ worker/                   Railway app service (Node 24, runs .ts directly)
 bridge/                   Blender helper the creator downloads (zip built per device by server.ts): creator_bridge.py, blockout.py
 supabase/
   functions/              youtube-connector, instagram-connector, tiktok-connector, _shared
-  migrations/             connection + OAuth state tables, video_jobs queue + renders bucket, projects + bridge_devices (RLS)
+  migrations/             connection + OAuth state tables, video_jobs queue + renders bucket, projects + bridge_devices, plan_items (RLS)
   tests/                  SQL boundary tests
 plugin/                   Claude Code + Codex plugin: .mcp.json pointing at /mcp, thin skills (script, shot-breakdown, composition, blockout)
 docs/                     Supabase auth + connector setup notes (from Creator_OS), mcp-setup.md
