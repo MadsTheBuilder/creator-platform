@@ -17,6 +17,10 @@ the only author. The creator judges the result against motion graphics they admi
    is the spine: cuts, reveals and captions land on its words and pauses. Speech-to-text mishears names and
    sometimes leaves stray characters from other alphabets: if the project has a script (or the creator gives you
    one), compare and correct the words with `fix_transcript` before you time anything to them.
+   **Devanagari to Roman:** whisper often writes Hindi in Devanagari whatever the creator chose. If `get_project`
+   says `writing: "roman"` and `get_transcript` reports Devanagari words, convert them all with `fix_transcript`
+   before anything else. Use the script's spelling where it has the word; otherwise common Roman Hinglish
+   ("shaam", "bheed", "hai"). Keep English words in English.
 3. **Pick the music first** (if there is any in `media/`), then `analyze_beats` it. Section changes go on bar
    lines (every 4 or 8 beats), hits and cuts on beats. Without music, the transcript's phrase ends are the beat.
 4. **Write the beat plan** and save it with `save_plan`. It shows on the Direction step. Then stop and ask the

@@ -38,7 +38,7 @@ export function Recording({ project, onSaved }: { project: Project; onSaved: (p:
   useEffect(() => { void loadJob(); }, [project.id]);
   useEffect(() => { if (server === 'ready') void loadMedia(); }, [server, project.id]);
   usePolled(job, setJob, setError);
-  const { devices, online, reload } = useDevices(server === 'ready', job?.status === 'queued', setError);
+  const { devices, online, reload } = useDevices(server === 'ready', setError);
   const changes = useProjectChanges(project.id);
   useEffect(() => { if (!changes) return; void loadJob(); if (server === 'ready') void loadMedia(); }, [changes]);
   // The transcript belongs to the latest finished job; reload it whenever that job changes.
@@ -114,6 +114,7 @@ export function Recording({ project, onSaved }: { project: Project; onSaved: (p:
 
     {result && <section className="glass storyboard-form" aria-label="Transcript">
       <div><h2>Transcript</h2><p className="muted">{clock(result.seconds)} · {result.words} words. Your Claude reads this to time the build.</p></div>
+      {job?.input.writing === 'roman' && words?.some(w => /[ऀ-ॿ]/.test(w.text)) && <p className="muted">Parts are in Devanagari. Your Claude converts it to Roman letters before building.</p>}
       {words === null ? <p role="status">Loading the transcript…</p>
         : <ol className="transcript">{lines.map((l, i) => <li key={i}><time>{clock(l.start)}</time><span>{l.text}</span></li>)}</ol>}
     </section>}

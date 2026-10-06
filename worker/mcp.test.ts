@@ -233,3 +233,55 @@ test('snapshot returns real frames of the saved composition', { timeout: 240_000
   assert.equal(frames.content.filter((c: Row) => c.type === 'image').length, 2);
   await client.close();
 });
+
+test('studio: Devanagari words are flagged for conversion to Roman, timings kept', async () => {
+  const client = await connect('modern');
+  const { structuredContent: { project } } = await call(client, 'create_project', { name: 'Hinglish', track: 'studio' });
+  const job = (writing: string) => ({ id: crypto.randomUUID(), user_id: ME, project_id: project.id, kind: 'transcribe', status: 'done',
+    input: { file: 'take.m4a', language: 'hi', writing }, output: { file: 'media/recording.m4a', seconds: 2, words: 3, video: false }, error: null,
+    created_at: new Date(Date.now() + tables.video_jobs.length * 1000).toISOString() });
+  tables.video_jobs.push(job('roman'));
+  const dir = projectDir(ME, project.id);
+  await mkdir(dir, { recursive: true });
+  await writeFile(join(dir, 'transcript.json'), JSON.stringify([{ text: 'शाम', start: 0.1, end: 0.4 }, { text: 'के', start: 0.4, end: 0.5 }, { text: 'Mirzapur', start: 0.6, end: 1.2 }]));
+
+  const got = await call(client, 'get_project', { project_id: project.id });
+  assert.equal(got.structuredContent.transcription.writing, 'roman');
+  assert.equal(got.structuredContent.transcription.language, 'hi');
+
+  const before = await call(client, 'get_transcript', { project_id: project.id });
+  assert.equal(before.structuredContent.devanagari, 2);
+  assert.match(before.structuredContent.note, /fix_transcript/);
+  assert.match(before.structuredContent.note, /Roman/);
+
+  const fixed = await call(client, 'fix_transcript', { project_id: project.id, edits: [{ index: 0, text: 'Shaam' }, { index: 1, text: 'ke' }] });
+  assert.equal(fixed.structuredContent.changed, 2);
+  const after = await call(client, 'get_transcript', { project_id: project.id });
+  assert.equal(after.structuredContent.devanagari, 0);
+  assert.equal(after.structuredContent.note, undefined);
+  assert.equal(after.structuredContent.transcript, '0.10 0.40 Shaam\n0.40 0.50 ke\n0.60 1.20 Mirzapur');
+
+  // A creator who chose Devanagari is not asked to convert.
+  await writeFile(join(dir, 'transcript.json'), JSON.stringify([{ text: 'शाम', start: 0.1, end: 0.4 }]));
+  tables.video_jobs.push(job('devanagari'));
+  const dev = await call(client, 'get_transcript', { project_id: project.id });
+  assert.equal(dev.structuredContent.devanagari, 1);
+  assert.equal(dev.structuredContent.note, undefined);
+
+  const guide = (await call(client, 'get_guide', { topic: 'studio' })).structuredContent.guide;
+  for (const word of ['Devanagari', 'Roman', 'fix_transcript']) assert.match(guide, new RegExp(word));
+  const tools = (await client.listTools()).tools;
+  assert.match(tools.find(t => t.name === 'fix_transcript')!.description!, /Devanagari/);
+  await client.close();
+});
+
+test('the whisper prompt is the project script or nothing (no seed sentence)', async () => {
+  const { settings } = await import('./transcribe.ts');
+  const BLANK = crypto.randomUUID(), SCRIPTED = crypto.randomUUID();
+  tables.projects.push({ id: BLANK, user_id: ME, script: '' }, { id: SCRIPTED, user_id: ME, script: 'Shaam ke 7 baj rahe the.' });
+  const job = (project_id: string, writing: string, language = 'hi') => ({ id: 'j', user_id: ME, project_id, input: { file: 'x.m4a', language, writing } });
+  assert.deepEqual(await settings(db, job(BLANK, 'roman')), { language: 'hi', prompt: '' });
+  assert.deepEqual(await settings(db, job(BLANK, 'devanagari')), { language: 'hi', prompt: '' });
+  assert.deepEqual(await settings(db, job(BLANK, 'roman', 'en')), { language: 'en', prompt: '' });
+  assert.deepEqual(await settings(db, job(SCRIPTED, 'roman')), { language: 'hi', prompt: 'Shaam ke 7 baj rahe the.' });
+});

@@ -18,13 +18,6 @@ import { local, MB, mediaPath, projectDir, readTranscript } from './project-file
 const run = promisify(execFile);
 const HYPERFRAMES = local('./node_modules/hyperframes/bin/hyperframes.mjs');
 const MAX_SECONDS = 30 * 60;
-// Whisper writes Hindi in Devanagari unless its prompt is in Roman letters. A short seed picks the script
-// when the project has no script of its own to prompt with.
-const SEED = {
-  roman: 'Namaste dosto, aaj hum ek nayi kahani ki baat karenge.',
-  devanagari: 'नमस्ते दोस्तों, आज हम एक नई कहानी की बात करेंगे।',
-};
-
 export type TranscribeJob = { id: string; user_id: string; project_id: string; input: { file?: unknown; language?: unknown; writing?: unknown } };
 
 // Keys for one job, handed to the creator's Claude Code by transcribe_recording (the helper uses its device key).
@@ -53,15 +46,14 @@ export async function probe(job: TranscribeJob) {
 }
 
 // What the computer doing the transcription needs besides the audio. The creator names the language: detection
-// called a Hindi narration English and translated it. The prompt (their script if they wrote one, else a seed)
-// spells names their way and keeps captions in their writing.
+// called a Hindi narration English and translated it. The prompt (their script, if they wrote one) spells
+// names their way. Whisper often writes Hindi in Devanagari whatever the prompt; the creator's Claude converts it.
 export async function settings(db: SupabaseClient, job: TranscribeJob) {
   const english = job.input.language === 'en';
   const { data: project } = await db.from('projects').select('script').eq('id', job.project_id).maybeSingle();
   // Whisper keeps at most ~224 prompt tokens; Devanagari spends several per character.
   const script = String(project?.script ?? '').replace(/\s+/g, ' ').trim();
-  const prompt = script.slice(0, /[ऀ-ॿ]/.test(script) ? 200 : 500)
-    || (english ? '' : SEED[job.input.writing === 'devanagari' ? 'devanagari' : 'roman']);
+  const prompt = script.slice(0, /[ऀ-ॿ]/.test(script) ? 200 : 500);
   return { language: english ? 'en' : 'hi', prompt };
 }
 

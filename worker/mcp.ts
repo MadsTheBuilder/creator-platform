@@ -182,14 +182,14 @@ export function createMcp(db: SupabaseClient) {
         db.from('bridge_devices').select('last_seen').eq('user_id', user).gt('last_seen', new Date(Date.now() - 90_000).toISOString()),
         listMedia(user, project_id),
         readTranscript(user, project_id),
-        db.from('video_jobs').select('id,status,error').eq('project_id', project_id).eq('user_id', user).eq('kind', 'transcribe').order('created_at', { ascending: false }).limit(1).maybeSingle(),
+        db.from('video_jobs').select('id,status,error,input').eq('project_id', project_id).eq('user_id', user).eq('kind', 'transcribe').order('created_at', { ascending: false }).limit(1).maybeSingle(),
       ]);
       return ok({
         project: { ...project, script_hash: sha256(project?.script ?? '') },
         // Studio track: the recording, music and effects in media/, and the transcript's size.
         ...project?.track === 'studio' && {
           media, transcript: words && { words: words.length, seconds: words.at(-1)?.end ?? 0 },
-          transcription: transcription && { job_id: transcription.id, status: transcription.status, error: transcription.error },
+          transcription: transcription && { job_id: transcription.id, status: transcription.status, error: transcription.error, language: transcription.input?.language, writing: transcription.input?.writing },
         },
         breakdown: breakdown && { id: breakdown.id, source: breakdown.source, created_at: breakdown.created_at, ...summary(breakdown.storyboard) },
         composition: { blank: isBlank(html), hash: sha256(html), bytes: Buffer.byteLength(html) },
@@ -399,7 +399,14 @@ export function createMcp(db: SupabaseClient) {
       const words = await readTranscript(user, project_id);
       if (!words?.length) return refuse('There is no transcript yet. Ask the creator to upload their recording in Playground > Recording, or upload it with create_upload_url (target "media") and call transcribe_recording.');
       const lines = words.map(w => `${w.start.toFixed(2)} ${w.end.toFixed(2)} ${w.text}`).join('\n');
-      return ok({ words: words.length, seconds: words.at(-1)!.end, transcript: lines }, `${words.length} words, ${words.at(-1)!.end.toFixed(1)} s. One word per line: start end word.\n${lines}`);
+      const devanagari = words.filter(w => /[ऀ-ॿ]/.test(w.text)).length;
+      let note: string | undefined;
+      if (devanagari) {
+        const { data: job } = await db.from('video_jobs').select('input').eq('project_id', project_id).eq('user_id', user).eq('kind', 'transcribe').order('created_at', { ascending: false }).limit(1).maybeSingle();
+        if (job?.input?.writing === 'roman') note = `${devanagari} words are in Devanagari but the creator chose Roman letters: convert every Devanagari word to Roman Hinglish with fix_transcript (timings are kept), matching the script's spelling when there is one, before you time anything to the words.`;
+      }
+      return ok({ words: words.length, seconds: words.at(-1)!.end, devanagari, ...note && { note }, transcript: lines },
+        `${words.length} words, ${words.at(-1)!.end.toFixed(1)} s. One word per line: start end word.${note ? `\nNOTE: ${note}` : ''}\n${lines}`);
     }));
 
     server.registerTool('transcribe_recording', {
@@ -439,7 +446,7 @@ The first run downloads whisper.cpp and the speech model (~1.6 GB) into a cache,
 
     server.registerTool('fix_transcript', {
       title: 'Correct transcript words',
-      description: 'Correct misheard words in the transcript, keeping their timings: each edit replaces the text of the word at that index (0-based, the line number in get_transcript minus one). Compare against the creator\'s script to fix names and spelling before timing captions to it.',
+      description: 'Correct misheard words in the transcript, keeping their timings: each edit replaces the text of the word at that index (0-based, the line number in get_transcript minus one). Compare against the creator\'s script to fix names and spelling before timing captions to it. Also converts Devanagari words to Roman letters (Hinglish), timings kept.',
       inputSchema: z.object({
         project_id: projectId,
         edits: z.array(z.object({ index: z.int().min(0), text: z.string().trim().min(1).max(60) })).min(1).max(5000),

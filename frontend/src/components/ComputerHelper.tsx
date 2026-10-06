@@ -8,12 +8,11 @@ export type Device = { id: string; name: string; created_at: string; last_seen: 
 const ONLINE_MS = 60_000;
 const live = (d: Device) => !!d.last_seen && Date.now() - new Date(d.last_seen).getTime() < ONLINE_MS;
 
-// The creator's paired computers; while `watching` (a job waits for one), the online dot stays fresh.
-export function useDevices(ready: boolean, watching: boolean, setError: (e: string) => void) {
+// The creator's paired computers, refreshed so the online dot follows the helper starting and stopping.
+export function useDevices(ready: boolean, setError: (e: string) => void) {
   const [devices, setDevices] = useState<Device[] | null>(null);
   const reload = () => api<Device[]>('/api/bridge/devices').then(setDevices, e => setError(e.message));
-  useEffect(() => { if (ready) void reload(); }, [ready]);
-  useEffect(() => { if (!ready || !watching) return; const t = setInterval(reload, 15_000); return () => clearInterval(t); }, [ready, watching]);
+  useEffect(() => { if (!ready) return; void reload(); const t = setInterval(reload, 15_000); return () => clearInterval(t); }, [ready]);
   return { devices, online: !!devices?.some(live), reload };
 }
 

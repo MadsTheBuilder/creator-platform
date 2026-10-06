@@ -28,7 +28,7 @@ export function Visual3D({ project, onShots }: { project: Project; onShots: () =
   usePolled(job, setJob, setError);
   const changes = useProjectChanges(project.id);
   useEffect(() => { if (!changes) return; latestJob<BlockoutJob>('blockout', { projectId: project.id }).then(setJob, () => {}); if (server === 'ready') loadRefs(); }, [changes]);
-  const { devices, online, reload } = useDevices(server === 'ready', active(job), setError);
+  const { devices, online, reload } = useDevices(server === 'ready', setError);
 
   if (server !== 'ready') return server === 'connecting' ? <p role="status">Connecting…</p> : <p role="alert">{server}</p>;
   const board = breakdown?.status === 'done' ? breakdown.output : null;
