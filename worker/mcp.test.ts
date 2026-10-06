@@ -212,6 +212,17 @@ test('studio: transcript, beat plan, uploads and beats', { timeout: 120_000 }, a
   const beats = await call(client, 'analyze_beats', { project_id: project.id, file: 'clicks.wav' });
   assert.equal(beats.isError, undefined, beats.content[0].text);
   assert.ok(beats.structuredContent.count >= 10);
+
+  // Speech to text runs on the creator's computer: a one-job key for their Claude Code, or a job for the helper.
+  const queued = await call(client, 'transcribe_recording', { project_id: project.id, file: 'clicks.wav', on: 'helper' });
+  assert.equal(queued.structuredContent.status, 'queued');
+  const here = await call(client, 'transcribe_recording', { project_id: project.id, file: 'clicks.wav' });
+  assert.equal(here.structuredContent.status, 'running');
+  assert.equal(here.structuredContent.script_url, 'https://app.test/kit/transcribe.py');
+  assert.match(here.content[0].text, new RegExp(`python transcribe.py "https://app.test/bridge/jobs/${here.structuredContent.job_id}" "${here.structuredContent.key}"`));
+  const jobs = tables.video_jobs.filter(j => j.project_id === project.id && j.kind === 'transcribe');
+  assert.deepEqual(jobs.map(j => j.status), ['failed', 'running']); // the newer one replaces the queued one
+  assert.equal(jobs[1].input.on, 'claude');
   await client.close();
 });
 

@@ -12,9 +12,11 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 // every HyperFrames release, so bump it together with the pinned version (0.8.134).
 import { createStudioServer } from 'hyperframes/dist/studioServer-PXNJXHMV.js';
 import { parseStoryboard } from '../frontend/src/storyboard/composition.ts';
+import { JobError } from './job-error.ts';
 import { mountMcp } from './mcp.ts';
 import { BLOCKOUT_FILE, DATA, ensureProject, hasRoom, isBlank, latestBreakdown, listMedia, listReferences, local, MB, mediaPath, owns as ownsProject, projectDir,
-  readComposition, refPath, SAFE_NAME, saveBody, sha256, UploadError, writeComposition } from './project-files.ts';
+  readComposition, refPath, SAFE_NAME, saveBody, sha256, touchProject, UploadError, writeComposition } from './project-files.ts';
+import { finish as finishTranscription, probe, settings, speech, tickets, whisperJson } from './transcribe.ts';
 
 const SITE = local('../frontend/dist');
 const STUDIO_UI = local('./node_modules/hyperframes/dist/studio');
@@ -167,6 +169,13 @@ export function startServer(db: SupabaseClient, port: number) {
     await rm(path, { force: true });
     return c.json({ ok: true });
   });
+  // Stop waiting for a computer (or a Claude Code run that died). One the server is already finishing runs on.
+  app.post('/api/playground/:id/transcribe/cancel', async c => {
+    if (!await owns(c.get('user'), c.req.param('id'))) return c.json({ error: 'not found' }, 404);
+    await db.from('video_jobs').update({ status: 'failed', error: 'Cancelled.', updated_at: new Date().toISOString() })
+      .eq('project_id', c.req.param('id')).eq('user_id', c.get('user')).eq('kind', 'transcribe').in('status', ['queued', 'running']).is('output', null);
+    return c.json({ ok: true });
+  });
   app.get('/api/playground/:id/file/*', async c => {
     const id = c.req.param('id');
     if (!await owns(c.get('user'), id)) return c.json({ error: 'not found' }, 404);
@@ -179,12 +188,12 @@ export function startServer(db: SupabaseClient, port: number) {
   // Pair a creator's PC: a new device key, delivered inside the helper download.
   app.post('/api/bridge/pair', async c => {
     const token = randomBytes(32).toString('base64url');
-    const { error } = await db.from('bridge_devices').insert({ user_id: c.get('user'), token_hash: sha256(token) });
+    const { error } = await db.from('bridge_devices').insert({ user_id: c.get('user'), token_hash: sha256(token), name: 'My computer' });
     if (error) return c.json({ error: 'Could not connect a new computer. Please try again.' }, 500);
     const host = c.req.header('x-forwarded-host') ?? c.req.header('host');
     const proto = c.req.header('x-forwarded-proto') ?? new URL(c.req.url).protocol.slice(0, -1);
     const zip = new AdmZip();
-    for (const name of ['creator_bridge.py', 'blockout.py', 'start-windows.bat', 'README.txt']) zip.addLocalFile(join(BRIDGE_KIT, name), 'creator-bridge');
+    for (const name of ['creator_bridge.py', 'blockout.py', 'transcribe.py', 'start-windows.bat', 'README.txt']) zip.addLocalFile(join(BRIDGE_KIT, name), 'creator-bridge');
     zip.addFile('creator-bridge/config.json', Buffer.from(JSON.stringify({ server: `${proto}://${host}`, token }, null, 2)));
     return new Response(new Uint8Array(zip.toBuffer()), { headers: { 'Content-Type': 'application/zip', 'Content-Disposition': 'attachment; filename="creator-bridge.zip"', 'Cache-Control': 'no-store' } });
   });
@@ -217,10 +226,17 @@ export function startServer(db: SupabaseClient, port: number) {
     return c.html(html, 200, { 'Cache-Control': 'no-cache' });
   });
 
-  // ---- The creator's PC (creator_bridge.py), signed with its device key.
+  // ---- The creator's computer: the helper (creator_bridge.py) signs with its device key; their Claude Code,
+  // running bridge/transcribe.py, signs with a key for that one job (from transcribe_recording).
   const seen = new Map<string, number>();
   app.use('/bridge/*', async (c, next) => {
-    const token = c.req.header('authorization')?.match(/^Bearer (\S+)$/)?.[1];
+    const token = c.req.header('authorization')?.match(/^Bearer (\S+)$/)?.[1] ?? '';
+    const ticket = tickets.get(token);
+    if (ticket && ticket.until > Date.now()) {
+      if (c.req.path !== `/bridge/jobs/${ticket.job}` && !c.req.path.startsWith(`/bridge/jobs/${ticket.job}/`)) return c.json({ error: 'This key is for one transcription only.' }, 401);
+      c.set('user', ticket.user);
+      return next();
+    }
     const { data } = token ? await db.from('bridge_devices').select('id,user_id').eq('token_hash', sha256(token)).maybeSingle() : { data: null };
     if (!data) return c.json({ error: 'This computer is not connected.' }, 401);
     if ((seen.get(data.id) ?? 0) < Date.now() - 30_000) {
@@ -232,22 +248,29 @@ export function startServer(db: SupabaseClient, port: number) {
   });
   const now = () => new Date().toISOString();
   const fail = (id: string, error: string) => db.from('video_jobs').update({ status: 'failed', error, updated_at: now() }).eq('id', id);
-  async function runningBlockout(c: Context<Env>) {
-    const { data } = await db.from('video_jobs').select('id,project_id').eq('id', c.req.param('job')!).eq('user_id', c.get('user'))
-      .eq('kind', 'blockout').eq('status', 'running').maybeSingle();
-    return data;
+  async function runningJob(c: Context<Env>) {
+    const { data } = await db.from('video_jobs').select('id,kind,user_id,project_id,input,output').eq('id', c.req.param('job')!).eq('user_id', c.get('user'))
+      .in('kind', ['blockout', 'transcribe']).eq('status', 'running').maybeSingle();
+    return data && !data.output?.stage ? data : null; // a transcription the server is already finishing takes no more uploads
   }
 
   app.post('/bridge/claim', async c => {
     const user = c.get('user');
-    await c.req.text().catch(() => ''); // an unread body makes the server reset the helper's connection
-    // A helper closed mid-build never finishes its job.
-    await db.from('video_jobs').update({ status: 'failed', error: 'The Blender helper stopped before finishing. Please try again.', updated_at: now() })
-      .eq('user_id', user).eq('kind', 'blockout').eq('status', 'running').lt('updated_at', new Date(Date.now() - 3 * 60 * 60_000).toISOString());
-    const { data, error } = await db.rpc('claim_video_job', { p_kinds: ['blockout'], p_user: user });
+    // Read the body even if unused: an unread body makes the server reset the helper's connection.
+    // Helpers from before transcription send no kinds and only build blockouts.
+    const body = await c.req.json().catch(() => null);
+    const kinds = ['blockout', 'transcribe'].filter(k => Array.isArray(body?.kinds) ? body.kinds.includes(k) : k === 'blockout');
+    // A helper closed mid-job never finishes it.
+    await db.from('video_jobs').update({ status: 'failed', error: 'Your computer stopped before finishing. Please try again.', updated_at: now() })
+      .eq('user_id', user).in('kind', ['blockout', 'transcribe']).eq('status', 'running').lt('updated_at', new Date(Date.now() - 3 * 60 * 60_000).toISOString());
+    const { data, error } = await db.rpc('claim_video_job', { p_kinds: kinds, p_user: user });
     if (error) return c.json({ error: 'queue unavailable' }, 503);
     const job = data?.[0];
     if (!job) return c.json(null);
+    if (job.kind === 'transcribe') {
+      try { await probe(job); } catch (e) { await fail(job.id, e instanceof JobError ? e.message : 'The recording could not be read.'); return c.json(null); }
+      return c.json({ id: job.id, kind: 'transcribe' });
+    }
     // Shots come from the project's own breakdown, never from what the browser sent.
     const { data: breakdown } = await db.from('video_jobs').select('output').eq('id', job.input?.breakdown_id ?? '').eq('user_id', user)
       .eq('project_id', job.project_id).eq('kind', 'breakdown').eq('status', 'done').maybeSingle();
@@ -257,29 +280,58 @@ export function startServer(db: SupabaseClient, port: number) {
     let no = 0;
     const shots: Shot[] = board ? board.scenes.flatMap(scene => scene.shots.map(shot => ({ no: ++no, scene: scene.heading, ...shot }))).filter(s => wanted.has(s.no)) : [];
     if (!board || !shots.length) { await fail(job.id, 'Pick at least one shot from the latest breakdown.'); return c.json(null); }
-    return c.json({ id: job.id, spec: { title: board.title, aspect: board.aspect, shots } });
+    return c.json({ id: job.id, kind: 'blockout', spec: { title: board.title, aspect: board.aspect, shots } });
+  });
+
+  // A transcription: its language and prompt, then the speech itself.
+  app.get('/bridge/jobs/:job', async c => {
+    const job = await runningJob(c);
+    if (job?.kind !== 'transcribe') return c.json({ error: 'This transcription is no longer running.' }, 404);
+    return c.json(await settings(db, job));
+  });
+  app.get('/bridge/jobs/:job/audio', async c => {
+    const job = await runningJob(c);
+    if (job?.kind !== 'transcribe') return c.json({ error: 'This transcription is no longer running.' }, 404);
+    try { return new Response(speech((await probe(job)).src), { headers: { 'Content-Type': 'audio/wav', 'Cache-Control': 'no-store' } }); }
+    catch (e) { return c.json({ error: e instanceof JobError ? e.message : 'The recording could not be read.' }, 404); }
   });
 
   app.put('/bridge/jobs/:job/files/:name', async c => {
-    const job = await runningBlockout(c), name = c.req.param('name');
-    if (!job) return c.json({ error: 'This blockout is no longer running.' }, 404);
-    if (!SAFE_NAME.test(name) || !BLOCKOUT_FILE.test(name)) return c.json({ error: 'Unexpected file.' }, 400);
-    try { await saveBody(c.req.raw, join(projectDir(c.get('user'), job.project_id), 'blockout', job.id, name), 2048 * MB); }
+    const job = await runningJob(c), name = c.req.param('name');
+    if (!job) return c.json({ error: 'This job is no longer running.' }, 404);
+    const blockout = job.kind === 'blockout';
+    if (blockout ? !SAFE_NAME.test(name) || !BLOCKOUT_FILE.test(name) : name !== 'whisper.json') return c.json({ error: 'Unexpected file.' }, 400);
+    const path = blockout ? join(projectDir(c.get('user'), job.project_id), 'blockout', job.id, name) : whisperJson(c.get('user'), job.project_id);
+    try { await saveBody(c.req.raw, path, blockout ? 2048 * MB : 256 * MB); }
     catch (e) { return c.json({ error: e instanceof UploadError ? e.message : 'Upload failed.' }, 400); }
     return c.json({ ok: true });
   });
 
   app.post('/bridge/jobs/:job/finish', async c => {
-    const job = await runningBlockout(c);
-    if (!job) return c.json({ error: 'This blockout is no longer running.' }, 404);
+    const job = await runningJob(c);
+    if (!job) return c.json({ error: 'This job is no longer running.' }, 404);
     const body = await c.req.json().catch(() => ({}));
-    if (!body.ok) { await fail(job.id, `Blender on your computer: ${String(body.error ?? 'unknown error').slice(-1500)}`); return c.json({ ok: true }); }
+    const who = job.kind === 'blockout' ? 'Blender on your computer' : 'Transcription on your computer';
+    if (!body.ok) { await fail(job.id, `${who}: ${String(body.error ?? 'unknown error').slice(-1500)}`); return c.json({ ok: true }); }
+    if (job.kind === 'transcribe') {
+      if (!existsSync(whisperJson(c.get('user'), job.project_id))) return c.json({ error: 'Upload whisper.json first.' }, 400);
+      // Answer now: the working copy can take minutes, longer than the computer should wait.
+      await db.from('video_jobs').update({ output: { stage: 'converting' }, updated_at: now() }).eq('id', job.id);
+      void finishTranscription(job)
+        .then(output => db.from('video_jobs').update({ status: 'done', output, updated_at: now() }).eq('id', job.id))
+        .catch(e => { console.error(`transcription ${job.id} failed`, e); return fail(job.id, e instanceof JobError ? e.message : 'Something went wrong on our side. Please try again.'); })
+        .then(() => touchProject(db, job.project_id));
+      return c.json({ ok: true });
+    }
     const dir = join(projectDir(c.get('user'), job.project_id), 'blockout', job.id);
     const files = (Array.isArray(body.files) ? body.files : []).filter((f: unknown) => typeof f === 'string' && SAFE_NAME.test(f) && existsSync(join(dir, f)));
     const shots = (Array.isArray(body.shots) ? body.shots : []).map((s: { no?: unknown }) => Number(s?.no)).filter((n: number) => n > 0);
     await db.from('video_jobs').update({ status: 'done', output: { files, shots }, updated_at: now() }).eq('id', job.id);
     return c.json({ ok: true });
   });
+
+  // The transcription script, for the creator's Claude Code to fetch (transcribe_recording says how). No secrets in it.
+  app.get('/kit/transcribe.py', async c => await file(BRIDGE_KIT, '/transcribe.py') ?? c.notFound());
 
   // The site, then the Studio UI's own static files (both use /assets with hashed names).
   app.get('*', async c => {

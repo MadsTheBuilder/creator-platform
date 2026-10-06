@@ -7,6 +7,6 @@ for /d %%D in ("%ProgramFiles%\Blender Foundation\Blender *") do set "B=%%D\blen
 if defined B (
   "%B%" -b --factory-startup --python creator_bridge.py
 ) else (
-  echo Install Blender 4.2 or newer first: https://www.blender.org/download/
+  echo Install Python 3 (https://www.python.org/downloads/) or Blender 4.2 or newer (https://www.blender.org/download/) first.
 )
 pause

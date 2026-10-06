@@ -5,7 +5,6 @@ import { breakdown } from './breakdown.ts';
 import { JobError } from './job-error.ts';
 import { script } from './script.ts';
 import { startServer } from './server.ts';
-import { transcribe } from './transcribe.ts';
 
 const { SUPABASE_URL, SUPABASE_SECRET_KEY } = process.env;
 if (!SUPABASE_URL || !SUPABASE_SECRET_KEY || !(process.env.ANTHROPIC_API_KEY || process.env.ANTHROPIC_AUTH_TOKEN)) {
@@ -13,9 +12,8 @@ if (!SUPABASE_URL || !SUPABASE_SECRET_KEY || !(process.env.ANTHROPIC_API_KEY || 
 }
 const db = createClient(SUPABASE_URL, SUPABASE_SECRET_KEY, { auth: { persistSession: false, autoRefreshToken: false } });
 const claude = new Anthropic();
-// Blockouts are claimed by the creator's own PC (the Blender bridge), never here.
-// ponytail: one loop, so a long transcription delays scripts and breakdowns; give it its own loop if that hurts.
-const KINDS = ['breakdown', 'script', 'transcribe'];
+// Blockouts and transcriptions are claimed by the creator's own computer (bridge/, or their Claude Code), never here.
+const KINDS = ['breakdown', 'script'];
 
 async function finish(id: string, fields: { status: 'done' | 'failed'; output?: unknown; error?: string }) {
   const { error } = await db.from('video_jobs').update({ ...fields, updated_at: new Date().toISOString() }).eq('id', id);
@@ -30,7 +28,7 @@ async function next(): Promise<boolean> {
   if (!job) return false;
   console.log(`job ${job.id} ${job.kind} started`);
   try {
-    const output = job.kind === 'breakdown' ? await breakdown(claude, job.input) : job.kind === 'transcribe' ? await transcribe(db, job) : await script(claude, job.input);
+    const output = job.kind === 'breakdown' ? await breakdown(claude, job.input) : await script(claude, job.input);
     await finish(job.id, { status: 'done', output });
     console.log(`job ${job.id} done`);
   } catch (cause) {
@@ -42,7 +40,10 @@ async function next(): Promise<boolean> {
 
 // A job left "running" by a previous container never finishes, so fail it on startup.
 // ponytail: assumes a single worker; give jobs a worker id + heartbeat before scaling out.
-await db.from('video_jobs').update({ status: 'failed', error: 'Interrupted by a worker restart. Please try again.', updated_at: new Date().toISOString() }).eq('status', 'running').in('kind', KINDS);
+const interrupted = { status: 'failed', error: 'Interrupted by a worker restart. Please try again.', updated_at: new Date().toISOString() };
+await db.from('video_jobs').update(interrupted).eq('status', 'running').in('kind', KINDS);
+// Transcriptions this server was finishing, or whose Claude Code key (kept in memory) just died with it.
+await db.from('video_jobs').update(interrupted).eq('status', 'running').eq('kind', 'transcribe').or('input->>on.eq.claude,output->>stage.eq.converting');
 startServer(db, Number(process.env.PORT ?? 8787));
 console.log('video worker ready');
 for (;;) {

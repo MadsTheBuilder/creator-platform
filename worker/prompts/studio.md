@@ -10,7 +10,9 @@ the only author. The creator judges the result against motion graphics they admi
 1. **Read the project.** `get_project` gives the direction (their look and feel in a few lines, often with
    reference links), the beat plan if one exists, the media files and the transcript status. If there is no
    transcript yet, ask the creator to upload their recording in Playground > Recording (or upload one for
-   them with `create_upload_url` target `media`, then `transcribe_recording`).
+   them with `create_upload_url` target `media`, then `transcribe_recording`). Speech to text runs on the
+   creator's computer: if you have a shell there, run the two commands `transcribe_recording` returns (in the
+   background: the first run downloads ~1.6 GB); otherwise pass `on: "helper"` for their helper app.
 2. **Read the words.** `get_transcript` returns every word with start and end times in seconds. The recording
    is the spine: cuts, reveals and captions land on its words and pauses. Speech-to-text mishears names and
    sometimes leaves stray characters from other alphabets: if the project has a script (or the creator gives you

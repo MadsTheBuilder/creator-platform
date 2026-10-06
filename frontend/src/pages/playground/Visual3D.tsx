@@ -1,15 +1,14 @@
 import { useEffect, useState, type ChangeEvent } from 'react';
-import { Desktop, DownloadSimple, Trash, UploadSimple } from '@phosphor-icons/react';
+import { DownloadSimple, Trash, UploadSimple } from '@phosphor-icons/react';
 import { api } from '../../data/app-server';
 import { useAppServer, usePolled, useProjectChanges } from '../../data/hooks';
 import type { Project } from '../../data/projects';
 import { active, latestJob, queueJob, type BlockoutJob } from '../../data/video-jobs';
+import { ComputerHelper, useDevices } from '../../components/ComputerHelper';
 import { Button, Empty, Notice } from '../../components/ui';
 import { useBreakdown } from './Shots';
 
-type Device = { id: string; name: string; created_at: string; last_seen: string | null };
 type Reference = { shot: number; name: string };
-const ONLINE_MS = 60_000;
 const isVideo = (name: string) => /\.(mp4|mov|webm)$/i.test(name);
 
 // Reference images/videos per shot, and Blender blockouts built by the helper on the creator's PC.
@@ -17,7 +16,6 @@ export function Visual3D({ project, onShots }: { project: Project; onShots: () =
   const server = useAppServer();
   const { breakdown } = useBreakdown(project.id);
   const [refs, setRefs] = useState<Reference[]>([]);
-  const [devices, setDevices] = useState<Device[] | null>(null);
   const [picked, setPicked] = useState<Set<number>>(new Set());
   const [job, setJob] = useState<BlockoutJob | null>(null);
   const [error, setError] = useState('');
@@ -25,14 +23,12 @@ export function Visual3D({ project, onShots }: { project: Project; onShots: () =
   const base = `/api/playground/${project.id}`;
 
   const loadRefs = () => api<Reference[]>(`${base}/references`).then(setRefs, e => setError(e.message));
-  const loadDevices = () => api<Device[]>('/api/bridge/devices').then(setDevices, e => setError(e.message));
-  useEffect(() => { if (server === 'ready') { loadRefs(); loadDevices(); } }, [server, project.id]);
+  useEffect(() => { if (server === 'ready') loadRefs(); }, [server, project.id]);
   useEffect(() => { latestJob<BlockoutJob>('blockout', { projectId: project.id }).then(setJob, e => setError(e.message)); }, [project.id]);
   usePolled(job, setJob, setError);
   const changes = useProjectChanges(project.id);
   useEffect(() => { if (!changes) return; latestJob<BlockoutJob>('blockout', { projectId: project.id }).then(setJob, () => {}); if (server === 'ready') loadRefs(); }, [changes]);
-  // While a blockout waits for the PC, keep the "online" dot fresh.
-  useEffect(() => { if (!active(job) || server !== 'ready') return; const t = setInterval(loadDevices, 15_000); return () => clearInterval(t); }, [job?.status, server]);
+  const { devices, online, reload } = useDevices(server === 'ready', active(job), setError);
 
   if (server !== 'ready') return server === 'connecting' ? <p role="status">Connecting…</p> : <p role="alert">{server}</p>;
   const board = breakdown?.status === 'done' ? breakdown.output : null;
@@ -40,7 +36,6 @@ export function Visual3D({ project, onShots }: { project: Project; onShots: () =
 
   let n = 0;
   const shots = board.scenes.flatMap(scene => scene.shots.map(shot => ({ no: ++n, scene: scene.heading, shot })));
-  const online = devices?.some(d => d.last_seen && Date.now() - new Date(d.last_seen).getTime() < ONLINE_MS);
 
   async function upload(shot: number, event: ChangeEvent<HTMLInputElement>) {
     const files = Array.from(event.target.files ?? []);
@@ -60,24 +55,6 @@ export function Visual3D({ project, onShots }: { project: Project; onShots: () =
     loadRefs();
   }
 
-  async function downloadHelper() {
-    setBusy('pair'); setError('');
-    try {
-      const res = await fetch('/api/bridge/pair', { method: 'POST' });
-      if (!res.ok) throw new Error((await res.json().catch(() => null))?.error ?? 'Could not prepare the helper. Please try again.');
-      const link = Object.assign(document.createElement('a'), { href: URL.createObjectURL(await res.blob()), download: 'creator-bridge.zip' });
-      link.click();
-      URL.revokeObjectURL(link.href);
-      loadDevices();
-    } catch (e) { setError((e as Error).message); } finally { setBusy(''); }
-  }
-
-  async function removeDevice(id: string) {
-    setError('');
-    try { await api(`/api/bridge/devices/${id}`, { method: 'DELETE' }); } catch (e) { setError((e as Error).message); }
-    loadDevices();
-  }
-
   async function build() {
     setBusy('build'); setError('');
     try { setJob(await queueJob<BlockoutJob>('blockout', { breakdown_id: breakdown!.id, shots: [...picked].sort((a, b) => a - b) }, project.id)); }
@@ -89,18 +66,8 @@ export function Visual3D({ project, onShots }: { project: Project; onShots: () =
   const done = job?.status === 'done' && job.output;
 
   return <div className="storyboard">
-    <section className="glass storyboard-form" aria-label="Blender on your computer">
-      <div className="section-toolbar">
-        <div><h2>Blender on your computer</h2><p className="muted">Blockouts render with your own Blender through a small helper. Nothing renders on our servers.</p></div>
-        <Button onClick={downloadHelper} disabled={busy === 'pair'}><DownloadSimple size={16}/>{devices?.length ? 'Connect another computer' : 'Download the helper'}</Button>
-      </div>
-      {devices?.length ? <ul className="device-list">{devices.map(d => {
-        const live = d.last_seen && Date.now() - new Date(d.last_seen).getTime() < ONLINE_MS;
-        return <li key={d.id}><Desktop size={18} aria-hidden/><span><strong>{d.name}</strong> <span className={`status-dot ${live ? 'on' : ''}`}/> {live ? 'Online' : d.last_seen ? `Last seen ${new Date(d.last_seen).toLocaleString()}` : 'Not started yet'}</span>
-          <Button aria-label={`Disconnect ${d.name}`} onClick={() => removeDevice(d.id)}><Trash size={16}/></Button></li>;
-      })}</ul>
-        : <p className="muted">Download the helper, unzip it and start it (Windows: start-windows.bat; Mac/Linux: python3 creator_bridge.py). It needs Blender 4.2 or newer.</p>}
-    </section>
+    <ComputerHelper title="Blender on your computer" body="Blockouts render with your own Blender through a small helper. Nothing renders on our servers."
+      setup="Blockouts need Blender 4.2 or newer." devices={devices} reload={reload} setError={setError}/>
 
     <section className="glass storyboard-form" aria-label="Shots">
       <div className="section-toolbar">

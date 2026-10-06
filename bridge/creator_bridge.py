@@ -1,6 +1,7 @@
-# creator_bridge.py - runs on the creator's PC and builds Blender blockouts for the Playground.
-# Picks up blockout requests from the app, runs Blender in the background (blockout.py), and
-# uploads the preview MP4, stills and .blend back to the project. Standard library only.
+# creator_bridge.py - runs on the creator's PC and does the Playground's heavy work there, never on our server:
+#   blockouts: runs Blender in the background (blockout.py) and uploads the preview MP4, stills and .blend;
+#   transcriptions: runs whisper.cpp on a Studio recording (transcribe.py) and uploads the words.
+# Standard library only.
 #   python creator_bridge.py          (or start-windows.bat, which can use Blender's own Python)
 import glob
 import json
@@ -12,6 +13,9 @@ import tempfile
 import time
 import urllib.error
 import urllib.request
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))  # Blender's Python doesn't add this folder
+import transcribe  # noqa: E402
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 CONFIG = json.load(open(os.path.join(HERE, "config.json"), encoding="utf-8"))
@@ -29,7 +33,7 @@ def find_blender():
     for c in candidates:
         if c and os.path.exists(c):
             return c
-    sys.exit('Blender not found. Install Blender 4.2 or newer, or put its path in config.json as "blender".')
+    return None
 
 
 def call(method, path, body=None, content_type="application/json"):
@@ -48,6 +52,10 @@ def upload(job_id, path):
 
 
 def run(job, blender):
+    if not blender:
+        call("POST", f"/bridge/jobs/{job['id']}/finish", {"ok": False, "error": 'Blender was not found on this computer. Install Blender 4.2 or newer, or put its path in the helper\'s config.json as "blender".'})
+        print("Skipped a blockout: Blender is not installed.")
+        return
     work = tempfile.mkdtemp(prefix="blockout-")
     try:
         spec = os.path.join(work, "shots.json")
@@ -79,16 +87,21 @@ def run(job, blender):
 
 def main():
     blender = find_blender()
-    print(f"Creator bridge connected to {SERVER}\nBlender: {blender}\nWaiting for blockout requests (Ctrl+C to stop).")
+    print(f"Creator bridge connected to {SERVER}\nBlender: {blender or 'not found (blockouts need Blender 4.2 or newer)'}\n"
+          "Waiting for blockouts and transcriptions (Ctrl+C to stop).")
     while True:
         try:
-            job = call("POST", "/bridge/claim", {})
+            job = call("POST", "/bridge/claim", {"kinds": ["blockout", "transcribe"]})
+            if job and job.get("kind") == "transcribe":
+                print("Transcribing a recording...")
+                transcribe.run(f"{SERVER}/bridge/jobs/{job['id']}", TOKEN)
+                continue
             if job:
                 run(job, blender)
                 continue
         except urllib.error.HTTPError as e:
             if e.code == 401:
-                sys.exit("This helper was disconnected. Download a new one from the 3D step of your project.")
+                sys.exit("This helper was disconnected. Download a new one from the Playground (3D visual or Recording step).")
             print("Server error:", e.code)
         except OSError as e:  # URLError, timeouts, dropped connections
             print("Can't reach the app, retrying:", e)
