@@ -5,13 +5,15 @@ import { createProject, deleteProject, getProject, listProjects, updateProject, 
 import { Button, Empty } from '../components/ui';
 import { Script } from './playground/Script';
 import { Shots } from './playground/Shots';
+import { Storyboard } from './playground/Storyboard';
 import { Visual3D } from './playground/Visual3D';
 import { Edit } from './playground/Edit';
 
-export type Step = 'script' | 'shots' | '3d' | 'edit';
+export type Step = 'script' | 'shots' | 'storyboard' | '3d' | 'edit';
 export const STEPS: { step: Step; label: string; blurb: string }[] = [
   { step: 'script', label: 'Script', blurb: 'Write, upload or generate the script.' },
-  { step: 'shots', label: 'Shot breakdown', blurb: 'Every shot with framing, lens, camera, light and timing, previewed as an animatic.' },
+  { step: 'shots', label: 'Shot breakdown', blurb: 'Every shot with framing, lens, camera, light and timing.' },
+  { step: 'storyboard', label: 'Storyboard', blurb: '2D storyboards of the shot breakdown, made with HyperFrames.' },
   { step: '3d', label: '3D visual', blurb: 'Reference images and videos per shot, and Blender blockouts built on your PC.' },
   { step: 'edit', label: 'Video edit', blurb: 'The full HyperFrames editor: timeline, keyframes, audio, blocks and render.' },
 ];
@@ -72,7 +74,8 @@ export function Playground({ projectId, step, onOpen, onConnections }: { project
         <Button onClick={() => setDialog({ mode: 'rename', project })}><PencilSimple size={16}/>Rename</Button>
       </div>}
       {step === 'script' ? <Script project={project} onSaved={setProject} onShots={() => onOpen(project.id, 'shots')}/>
-        : step === 'shots' ? <Shots project={project} onScript={() => onOpen(project.id, 'script')} onEdit={() => onOpen(project.id, 'edit')}/>
+        : step === 'shots' ? <Shots project={project} onScript={() => onOpen(project.id, 'script')} onStoryboard={() => onOpen(project.id, 'storyboard')}/>
+        : step === 'storyboard' ? <Storyboard project={project} onShots={() => onOpen(project.id, 'shots')}/>
         : step === '3d' ? <Visual3D project={project} onShots={() => onOpen(project.id, 'shots')}/>
         : <Edit project={project}/>}
       {nameDialog}

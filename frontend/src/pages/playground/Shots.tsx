@@ -19,7 +19,7 @@ export function useBreakdown(projectId: string) {
   return { breakdown, setBreakdown, error, setError };
 }
 
-export function Shots({ project, onScript, onEdit }: { project: Project; onScript: () => void; onEdit: () => void }) {
+export function Shots({ project, onScript, onStoryboard }: { project: Project; onScript: () => void; onStoryboard: () => void }) {
   const { breakdown, setBreakdown, error, setError } = useBreakdown(project.id);
   const [busy, setBusy] = useState(false);
   const board = breakdown?.status === 'done' ? breakdown.output : null;
@@ -60,9 +60,8 @@ export function Shots({ project, onScript, onEdit }: { project: Project; onScrip
     {board && <section className="glass storyboard-result" aria-label="Storyboard">
       <div className="section-toolbar">
         <div><h2>{board.title}</h2><p className="muted">{board.scenes.reduce((n, s) => n + s.shots.length, 0)} shots · {Math.round(totalSeconds(board))} s · {board.aspect}{breakdown?.input.source === 'mcp' && ' · from your AI assistant'}</p></div>
-        <Button className="primary" onClick={onEdit}>Open in editor</Button>
+        <Button className="primary" onClick={onStoryboard}>Storyboard</Button>
       </div>
-      <p className="muted">The editor opens with this breakdown as an animatic on its timeline, where you can preview, edit and export it.</p>
       {board.brief && <details><summary>Vision brief</summary><p className="storyboard-brief">{board.brief}</p></details>}
       <div className="table-scroll storyboard-shots"><table>
         <thead><tr><th>#</th><th>Shot</th><th>Framing</th><th>Camera</th><th>Light</th><th>Audio</th><th>Sec</th></tr></thead>

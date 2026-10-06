@@ -46,6 +46,8 @@ Never edit the source folders. Copy what's needed into this repo.
 - **2026-10-06 — App service live** at https://worker-production-b2a3.up.railway.app (volume `worker-volume` at `/data`, 500 MB). Supabase Auth's Site URL points at it, and `YOUTUBE_APP_ORIGINS` (shared by all three connectors) lists it alongside the two local 5173 origins.
 - **2026-10-06 — MCP server + Claude/Codex plugin (option B for Opus-level output).** The creator's own Claude or Codex does the generating; the platform supplies data, playbooks and storage. `/mcp` on the app service (`worker/mcp.ts`, MCP spec 2026-07-28 via `@modelcontextprotocol/server` v2, stateless, 2025-era fallback) with tools for projects, script, breakdown, Studio composition, references and blockouts. Auth is Supabase Auth's OAuth 2.1 server (consent page `/oauth/consent`, dynamic client registration on). Tools reuse the site's own code (`worker/project-files.ts`, `parseStoryboard`, `worker/schemas.ts`) and serve the playbooks (`get_guide`), so they follow site changes; Realtime on `projects` / `video_jobs` shows MCP writes live. Plugin for both clients in `plugin/` (marketplaces at `.claude-plugin/` and `.agents/plugins/`). Setup: `docs/mcp-setup.md`.
 
+- **2026-10-06 — Storyboard is its own Playground step** (dock: Script, Shot breakdown, Storyboard, 3D visual, Video edit). The breakdown no longer seeds the editor: the Studio opens empty, and storyboards (2D HyperFrames panels per shot) will live on the Storyboard step. `/api/playground/:id/seed` stays for that.
+
 ## Open decisions (ask before assuming)
 
 - **Higgsfield access**: API key vs MCP, and which models/workflows map to modules 5 and 6.
@@ -68,7 +70,7 @@ Record each decision above once it's made.
 frontend/                 React + Vite app (run commands from here)
   src/App.tsx             Shell + hash routing (#overview, #connections, #playground[/<project>/<step>]) + Playground dock
   src/pages/              Overview (metrics), Playground (projects), Connections (sign-in + connect)
-  src/pages/playground/   Script, Shots (breakdown -> animatic), Visual3D (references + blockouts), Edit (Studio iframe)
+  src/pages/playground/   Script, Shots (breakdown), Storyboard (2D HyperFrames storyboards, generation pending), Visual3D (references + blockouts), Edit (Studio iframe)
   src/components/         GoogleAccount, YouTube/Social connection, per-platform overviews, ui
   src/data/               supabase client, connector helpers, video job queue, projects, app-server session, metric math (+ tests)
   src/storyboard/         composition.ts: storyboard -> HyperFrames HTML + validation (seeds the editor). Shared with the worker:
