@@ -34,7 +34,9 @@ export function useProjectChanges(projectId: string | undefined) {
   useEffect(() => {
     if (!supabase || !projectId) return;
     const bump = () => setVersion(v => v + 1);
-    const channel = supabase.channel(`project-${projectId}`)
+    // A unique name per hook: several components watch the same project, and supabase-js hands a
+    // repeated name back as the already-subscribed channel, which then throws on .on().
+    const channel = supabase.channel(`project-${projectId}-${crypto.randomUUID()}`)
       .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'projects', filter: `id=eq.${projectId}` }, bump)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'video_jobs', filter: `project_id=eq.${projectId}` }, bump)
       .subscribe();
