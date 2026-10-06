@@ -1,0 +1,16 @@
+{
+  "name": "creator-platform",
+  "owner": {
+    "name": "Madhu"
+  },
+  "metadata": {
+    "description": "Content Engine (Creator Platform) for Claude Code."
+  },
+  "plugins": [
+    {
+      "name": "creator-platform",
+      "source": "./plugin",
+      "description": "Content Engine projects in Claude: scripts, shot breakdowns, HyperFrames edits, Blender blockouts."
+    }
+  ]
+}

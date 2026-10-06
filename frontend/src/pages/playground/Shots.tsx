@@ -1,5 +1,5 @@
 import { useEffect, useState, type FormEvent } from 'react';
-import { usePolled } from '../../data/hooks';
+import { usePolled, useProjectChanges } from '../../data/hooks';
 import type { Project } from '../../data/projects';
 import { active, latestJob, queueJob, type BreakdownJob } from '../../data/video-jobs';
 import { totalSeconds } from '../../storyboard/composition';
@@ -13,6 +13,8 @@ export function useBreakdown(projectId: string) {
   const [breakdown, setBreakdown] = useState<BreakdownJob | null>(null);
   const [error, setError] = useState('');
   useEffect(() => { setBreakdown(null); latestJob<BreakdownJob>('breakdown', { projectId }).then(setBreakdown, e => setError(e.message)); }, [projectId]);
+  const changes = useProjectChanges(projectId);
+  useEffect(() => { if (changes) latestJob<BreakdownJob>('breakdown', { projectId }).then(setBreakdown, () => {}); }, [changes]);
   usePolled(breakdown, setBreakdown, setError);
   return { breakdown, setBreakdown, error, setError };
 }
@@ -57,7 +59,7 @@ export function Shots({ project, onScript, onEdit }: { project: Project; onScrip
 
     {board && <section className="glass storyboard-result" aria-label="Storyboard">
       <div className="section-toolbar">
-        <div><h2>{board.title}</h2><p className="muted">{board.scenes.reduce((n, s) => n + s.shots.length, 0)} shots · {Math.round(totalSeconds(board))} s · {board.aspect}</p></div>
+        <div><h2>{board.title}</h2><p className="muted">{board.scenes.reduce((n, s) => n + s.shots.length, 0)} shots · {Math.round(totalSeconds(board))} s · {board.aspect}{breakdown?.input.source === 'mcp' && ' · from your AI assistant'}</p></div>
         <Button className="primary" onClick={onEdit}>Open in editor</Button>
       </div>
       <p className="muted">The editor opens with this breakdown as an animatic on its timeline, where you can preview, edit and export it.</p>

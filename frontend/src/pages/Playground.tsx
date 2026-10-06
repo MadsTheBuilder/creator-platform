@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { ArrowRight, FolderSimple, PencilSimple, Plus, Trash } from '@phosphor-icons/react';
-import { useSession } from '../data/hooks';
+import { useProjectChanges, useSession } from '../data/hooks';
 import { createProject, deleteProject, getProject, listProjects, updateProject, type Project } from '../data/projects';
 import { Button, Empty } from '../components/ui';
 import { Script } from './playground/Script';
@@ -29,6 +29,8 @@ export function Playground({ projectId, step, onOpen, onConnections }: { project
 
   useEffect(() => { if (session && !projectId) listProjects().then(setProjects, e => setError(e.message)); }, [session?.user.id, projectId]);
   useEffect(() => { setProject(null); if (session && projectId) getProject(projectId).then(setProject, e => setError(e.message)); }, [session?.user.id, projectId]);
+  const changes = useProjectChanges(projectId);
+  useEffect(() => { if (changes && session && projectId) getProject(projectId).then(setProject, () => {}); }, [changes]);
   useEffect(() => { if (dialog) dialogRef.current?.showModal(); else dialogRef.current?.close(); }, [dialog]);
 
   async function submit(event: FormEvent<HTMLFormElement>) {

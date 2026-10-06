@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "creator": {
+      "type": "http",
+      "url": "https://worker-production-b2a3.up.railway.app/mcp"
+    }
+  }
+}

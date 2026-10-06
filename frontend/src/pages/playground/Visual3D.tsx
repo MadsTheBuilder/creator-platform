@@ -1,7 +1,7 @@
 import { useEffect, useState, type ChangeEvent } from 'react';
 import { Desktop, DownloadSimple, Trash, UploadSimple } from '@phosphor-icons/react';
 import { api } from '../../data/app-server';
-import { useAppServer, usePolled } from '../../data/hooks';
+import { useAppServer, usePolled, useProjectChanges } from '../../data/hooks';
 import type { Project } from '../../data/projects';
 import { active, latestJob, queueJob, type BlockoutJob } from '../../data/video-jobs';
 import { Button, Empty, Notice } from '../../components/ui';
@@ -29,6 +29,8 @@ export function Visual3D({ project, onShots }: { project: Project; onShots: () =
   useEffect(() => { if (server === 'ready') { loadRefs(); loadDevices(); } }, [server, project.id]);
   useEffect(() => { latestJob<BlockoutJob>('blockout', { projectId: project.id }).then(setJob, e => setError(e.message)); }, [project.id]);
   usePolled(job, setJob, setError);
+  const changes = useProjectChanges(project.id);
+  useEffect(() => { if (!changes) return; latestJob<BlockoutJob>('blockout', { projectId: project.id }).then(setJob, () => {}); if (server === 'ready') loadRefs(); }, [changes]);
   // While a blockout waits for the PC, keep the "online" dot fresh.
   useEffect(() => { if (!active(job) || server !== 'ready') return; const t = setInterval(loadDevices, 15_000); return () => clearInterval(t); }, [job?.status, server]);
 

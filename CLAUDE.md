@@ -44,6 +44,7 @@ Never edit the source folders. Copy what's needed into this repo.
 - **2026-10-06 — Blender runs on the creator's PC, never on our server.** A paired helper (`bridge/`, standard-library Python) claims `blockout` jobs over `/bridge/*` with a device key (only its hash is stored in `bridge_devices`), runs `blockout.py` headless, and uploads the preview MP4, stills and `.blend` into the project folder.
 - **2026-10-06 — LLM via OpenRouter for now (free tier, ~50 requests/day).** No Anthropic key yet; AgentRouter keys reject non-Claude-Code clients. The worker uses OpenRouter's Anthropic-compatible API through `ANTHROPIC_BASE_URL=https://openrouter.ai/api` + `ANTHROPIC_AUTH_TOKEN`, model from `CLAUDE_MODEL` (`nvidia/nemotron-3-super-120b-a12b:free`: free and supports JSON-schema output). Unset all three and set `ANTHROPIC_API_KEY` to go back to Claude. The Anthropic-only server-side fallback in `breakdown.ts` is skipped whenever a base URL is set.
 - **2026-10-06 — App service live** at https://worker-production-b2a3.up.railway.app (volume `worker-volume` at `/data`, 500 MB). Supabase Auth's Site URL points at it, and `YOUTUBE_APP_ORIGINS` (shared by all three connectors) lists it alongside the two local 5173 origins.
+- **2026-10-06 — MCP server + Claude/Codex plugin (option B for Opus-level output).** The creator's own Claude or Codex does the generating; the platform supplies data, playbooks and storage. `/mcp` on the app service (`worker/mcp.ts`, MCP spec 2026-07-28 via `@modelcontextprotocol/server` v2, stateless, 2025-era fallback) with tools for projects, script, breakdown, Studio composition, references and blockouts. Auth is Supabase Auth's OAuth 2.1 server (consent page `/oauth/consent`, dynamic client registration on). Tools reuse the site's own code (`worker/project-files.ts`, `parseStoryboard`, `worker/schemas.ts`) and serve the playbooks (`get_guide`), so they follow site changes; Realtime on `projects` / `video_jobs` shows MCP writes live. Plugin for both clients in `plugin/` (marketplaces at `.claude-plugin/` and `.agents/plugins/`). Setup: `docs/mcp-setup.md`.
 
 ## Open decisions (ask before assuming)
 
@@ -76,14 +77,18 @@ worker/                   Railway app service (Node 24, runs .ts directly)
   index.ts                starts server.ts + the job loop: claim_video_job() -> breakdown | script -> done/failed
   server.ts               site, Supabase-cookie session, per-project HyperFrames Studio, references, Blender bridge API
   breakdown.ts            Claude API shot breakdown (structured output)
+  mcp.ts                  MCP server at /mcp for the creator's Claude / Codex (OAuth via Supabase) + upload links
+  project-files.ts        project folders, ownership, composition and breakdown helpers shared by server.ts and mcp.ts
+  schemas.ts              the breakdown JSON schema (worker Claude call + MCP tools)
   script.ts               Claude API script generation (prompts/script.md, from Content Hub V2)
-  prompts/                shot-breakdown skill adapted for the app + its reference files
+  prompts/                shot-breakdown skill adapted for the app + its reference files; MCP guides (mcp-breakdown, composition, blockout)
 bridge/                   Blender helper the creator downloads (zip built per device by server.ts): creator_bridge.py, blockout.py
 supabase/
   functions/              youtube-connector, instagram-connector, tiktok-connector, _shared
   migrations/             connection + OAuth state tables, video_jobs queue + renders bucket, projects + bridge_devices (RLS)
   tests/                  SQL boundary tests
-docs/                     Supabase auth + connector setup notes (from Creator_OS)
+plugin/                   Claude Code + Codex plugin: .mcp.json pointing at /mcp, thin skills (script, shot-breakdown, composition, blockout)
+docs/                     Supabase auth + connector setup notes (from Creator_OS), mcp-setup.md
 ```
 
 ## Commands
@@ -93,6 +98,8 @@ From `frontend/`: `npm run dev` (http://127.0.0.1:5173), `npm run build` (typech
 Backend: `supabase link --project-ref siacpdaiovnliamhorrf` once, then `supabase functions deploy <name>`. Server secrets (Google/TikTok/Instagram client secrets, `*_TOKEN_ENCRYPTION_KEY`, `*_APP_ORIGINS`) live in Supabase function secrets, never in `VITE_*` vars. See `supabase/functions/.env.example`.
 
 App service (worker): deploy from the repo root with `railway up --service worker` (service var `RAILWAY_DOCKERFILE_PATH=worker/Dockerfile`). Railway variables: `SUPABASE_URL`, `SUPABASE_SECRET_KEY` (Supabase secret / service-role key), `ANTHROPIC_API_KEY` (or `ANTHROPIC_BASE_URL` + `ANTHROPIC_AUTH_TOKEN` + `CLAUDE_MODEL` for OpenRouter), and `VITE_SUPABASE_URL` + `VITE_SUPABASE_PUBLISHABLE_KEY` (build args for the site). Needs a volume mounted at `/data` and a public domain. Logs: `railway logs --service worker`.
+
+Worker tests: `npm test` in `worker/` (MCP contract test, Node's test runner; one test runs `hyperframes check`).
 
 Local: `npm start` in `worker/` runs the app server on :8787 and the job loop against the live queue; `npm run dev` in `frontend/` proxies `/api`, `/studio` and the Studio's assets to it.
 

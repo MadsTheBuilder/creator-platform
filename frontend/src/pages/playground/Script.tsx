@@ -1,4 +1,4 @@
-import { useEffect, useState, type ChangeEvent, type FormEvent } from 'react';
+import { useEffect, useRef, useState, type ChangeEvent, type FormEvent } from 'react';
 import { UploadSimple } from '@phosphor-icons/react';
 import { usePolled } from '../../data/hooks';
 import { updateProject, type Project } from '../../data/projects';
@@ -16,6 +16,9 @@ export function Script({ project, onSaved, onShots }: { project: Project; onSave
 
   useEffect(() => { setText(project.script); latestJob<ScriptJob>('script', { projectId: project.id }).then(setJob, e => setError(e.message)); }, [project.id]);
   usePolled(job, setJob, setError);
+  // The script changed elsewhere (e.g. saved by the creator's Claude): show it, unless there are unsaved edits here.
+  const shown = useRef(project.script);
+  useEffect(() => { if (text === shown.current) setText(project.script); shown.current = project.script; }, [project.script]);
 
   async function save(script = text) {
     setBusy(true); setError('');

@@ -27,6 +27,22 @@ export function usePolled<T extends Job>(job: T | null, setJob: (job: T) => void
   }, [job?.id, job?.status]);
 }
 
+// Counts changes to a project made anywhere else (another tab, the creator's Claude / Codex over MCP):
+// its row (script, name, files touched) and its jobs. Add it to an effect's deps to refetch.
+export function useProjectChanges(projectId: string | undefined) {
+  const [version, setVersion] = useState(0);
+  useEffect(() => {
+    if (!supabase || !projectId) return;
+    const bump = () => setVersion(v => v + 1);
+    const channel = supabase.channel(`project-${projectId}`)
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'projects', filter: `id=eq.${projectId}` }, bump)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'video_jobs', filter: `project_id=eq.${projectId}` }, bump)
+      .subscribe();
+    return () => { supabase!.removeChannel(channel); };
+  }, [projectId]);
+  return version;
+}
+
 // Keep the app server's session cookie in step with Supabase. 'ready', 'connecting' or an error.
 export function useAppServer() {
   const [state, setState] = useState('connecting');

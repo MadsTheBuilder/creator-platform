@@ -370,3 +370,19 @@ meter::-moz-meter-bar{border-radius:99px;background:var(--orange)}
 .blockout-stills figure{margin:0}
 .blockout-stills img{width:100%;border-radius:10px;display:block}
 .blockout-stills figcaption{margin-top:4px;color:var(--muted);font-size:.75rem}
+/* OAuth consent for Claude / Codex (/oauth/consent). */
+.consent-page{display:grid;place-items:center;min-height:100dvh;padding:24px 16px}
+.consent-card{display:flex;flex-direction:column;align-items:flex-start;gap:14px;width:min(100%,460px);padding:28px}
+.consent-card h1{margin:0;font-size:1.375rem;letter-spacing:-.02em;line-height:1.25}
+.consent-card p{margin:0;color:var(--muted);font-size:.875rem;line-height:1.55}
+.consent-card p strong{color:var(--text);font-weight:600}
+.consent-card>svg{color:var(--orange)}
+.consent-meta{font-size:.8125rem}
+.consent-actions{display:flex;gap:10px;align-self:stretch;justify-content:flex-end;margin-top:6px}
+/* Connections: the creator's AI assistants. */
+.assistant-setup{display:grid;gap:8px;align-self:stretch}
+.assistant-setup code{display:block;overflow-x:auto;padding:10px 12px;border:1px solid var(--rim);border-radius:var(--control);background:rgb(0 0 0 / .25);font-size:.8125rem;white-space:pre}
+.assistant-setup small{color:var(--faint);font-size:.75rem}
+.assistant-grants{display:grid;gap:8px;align-self:stretch;margin:0;padding:0;list-style:none}
+.assistant-grants li{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px 12px;border:1px solid var(--rim);border-radius:var(--control);font-size:.875rem}
+.assistant-grants small{display:block;color:var(--faint);font-size:.75rem}

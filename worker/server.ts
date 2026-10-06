@@ -1,10 +1,8 @@
-import { createHash, randomBytes } from 'node:crypto';
-import { createReadStream, createWriteStream, existsSync } from 'node:fs';
-import { copyFile, mkdir, readdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
-import { dirname, extname, join, resolve, sep } from 'node:path';
-import { Readable, Transform } from 'node:stream';
-import { pipeline } from 'node:stream/promises';
-import { fileURLToPath } from 'node:url';
+import { randomBytes } from 'node:crypto';
+import { createReadStream, existsSync } from 'node:fs';
+import { readFile, rm, stat } from 'node:fs/promises';
+import { extname, join, resolve, sep } from 'node:path';
+import { Readable } from 'node:stream';
 import AdmZip from 'adm-zip';
 import { serve } from '@hono/node-server';
 import { Hono, type Context } from 'hono';
@@ -13,55 +11,19 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 // ponytail: the CLI's own `hyperframes preview` server, deep-imported. The chunk name changes with
 // every HyperFrames release, so bump it together with the pinned version (0.8.134).
 import { createStudioServer } from 'hyperframes/dist/studioServer-PXNJXHMV.js';
-import { buildComposition, parseStoryboard, type Storyboard } from '../frontend/src/storyboard/composition.ts';
+import { parseStoryboard } from '../frontend/src/storyboard/composition.ts';
+import { mountMcp } from './mcp.ts';
+import { BLOCKOUT_FILE, DATA, ensureProject, isBlank, latestBreakdown, listReferences, local, MB, owns as ownsProject, projectDir,
+  readComposition, refPath, SAFE_NAME, saveBody, sha256, UploadError, writeComposition } from './project-files.ts';
 
-const local = (path: string) => fileURLToPath(new URL(path, import.meta.url));
-const DATA = resolve(process.env.DATA_DIR ?? local('./data'));
 const SITE = local('../frontend/dist');
 const STUDIO_UI = local('./node_modules/hyperframes/dist/studio');
-const GSAP = local('./node_modules/gsap/dist/gsap.min.js');
 const COOKIE = 'hf_session';
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
-const BLANK_MARK = '<!-- playground:blank -->';
-const BLANK = `<!doctype html>${BLANK_MARK}
-<html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=1920, height=1080">
-<script src="gsap.min.js"></script>
-<style>body{margin:0;background:#000}#root{position:relative;width:100%;height:100%;overflow:hidden}</style>
-</head><body>
-<div id="root" data-composition-id="main" data-start="0" data-width="1920" data-height="1080" data-duration="10"></div>
-<script>window.__timelines["main"] = gsap.timeline({ paused: true });</script>
-</body></html>
-`;
 const BRIDGE_KIT = local('../bridge');
-const SAFE_NAME = /^\w[\w .()-]{0,120}$/;
-const REFERENCE = /\.(jpe?g|png|webp|gif|mp4|mov|webm)$/i;
-const BLOCKOUT_FILE = /\.(mp4|png|blend|json)$/i;
-const MB = 1024 * 1024;
 const MIME: Record<string, string> = { '.mp4': 'video/mp4', '.mov': 'video/quicktime', '.webm': 'video/webm', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp', '.gif': 'image/gif', '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.css': 'text/css', '.svg': 'image/svg+xml', '.json': 'application/json', '.map': 'application/json', '.woff': 'font/woff', '.woff2': 'font/woff2', '.png': 'image/png', '.ico': 'image/x-icon' };
 
 type Env = { Variables: { user: string } };
-
-// The storyboard as a HyperFrames project folder: index.html plus a local GSAP copy.
-async function writeComposition(dir: string, storyboard: Storyboard) {
-  await writeFile(join(dir, 'index.html'), buildComposition(storyboard, 'gsap.min.js'));
-  await copyFile(GSAP, join(dir, 'gsap.min.js'));
-}
 type Shot = Record<string, unknown>;
-class UploadError extends Error {}
-const sha256 = (text: string) => createHash('sha256').update(text).digest('hex');
-
-// Stream a request body to disk (never whole in memory), capped at `limit` bytes.
-async function saveBody(req: Request, path: string, limit: number) {
-  const tooBig = () => new UploadError(`Files up to ${limit / MB} MB fit.`);
-  if (!req.body) throw new UploadError('The upload was empty.');
-  if (Number(req.headers.get('content-length')) > limit) throw tooBig();
-  let size = 0;
-  const cap = new Transform({ transform(chunk, _enc, done) { size += chunk.length; done(size > limit ? tooBig() : null, chunk); } });
-  await mkdir(dirname(path), { recursive: true });
-  const part = `${path}.part`;
-  try { await pipeline(Readable.fromWeb(req.body as never), cap, createWriteStream(part)); await rename(part, path); }
-  catch (e) { await rm(part, { force: true }); throw e; }
-}
 
 // A file from disk with byte ranges, so videos can seek.
 async function sendFile(path: string, range: string | undefined) {
@@ -89,31 +51,16 @@ export function startServer(db: SupabaseClient, port: number) {
     return data.user.id;
   }
 
-  const owners = new Map<string, { user: string; until: number }>();
-  async function owns(user: string, project: string | undefined) {
-    if (!project || !UUID.test(project)) return false;
-    const hit = owners.get(project);
-    if (hit && hit.until > Date.now()) return hit.user === user;
-    const { data } = await db.from('projects').select('user_id').eq('id', project).maybeSingle();
-    if (!data) return false;
-    owners.set(project, { user: data.user_id, until: Date.now() + 60_000 });
-    return data.user_id === user;
-  }
+  const owns = (user: string, project: string | undefined) => ownsProject(db, user, project);
 
   // One HyperFrames Studio server per open project, on the volume at <DATA>/projects/<user>/<id>.
   // ponytail: never evicted (each holds a file watcher); evict idle ones if memory gets tight.
   const studios = new Map<string, Promise<ReturnType<typeof createStudioServer>>>();
-  const projectDir = (user: string, id: string) => join(DATA, 'projects', user, id);
   function studioFor(user: string, id: string) {
     let studio = studios.get(id);
     if (!studio) {
       studio = (async () => {
-        const dir = projectDir(user, id);
-        await mkdir(dir, { recursive: true });
-        if (!existsSync(join(dir, 'index.html'))) {
-          await writeFile(join(dir, 'index.html'), BLANK);
-          await copyFile(GSAP, join(dir, 'gsap.min.js'));
-        }
+        const dir = await ensureProject(user, id);
         return createStudioServer({ projectDir: dir, projectName: id, historyRoot: join(DATA, 'history') });
       })();
       studios.set(id, studio);
@@ -153,6 +100,9 @@ export function startServer(db: SupabaseClient, port: number) {
   });
   app.delete('/api/session', c => { deleteCookie(c, COOKIE, { path: '/' }); return c.json({ ok: true }); });
 
+  // The creator's own Claude / Codex (OAuth bearer tokens, not the cookie).
+  mountMcp(app, db, { supabaseUrl: process.env.SUPABASE_URL!, userFor });
+
   // Everything else under /api and /studio needs a signed-in creator.
   const signedIn = async (c: Context<Env>, next: () => Promise<void>) => {
     const user = await userFor(getCookie(c, COOKIE));
@@ -169,41 +119,29 @@ export function startServer(db: SupabaseClient, port: number) {
     if (!await owns(c.get('user'), id)) return c.json({ error: 'not found' }, 404);
     const dir = projectDir(c.get('user'), id);
     await studioFor(c.get('user'), id);
-    const index = await readFile(join(dir, 'index.html'), 'utf8').catch(() => '');
-    if (!index.includes(BLANK_MARK)) return c.json({ seeded: false });
-    const { data } = await db.from('video_jobs').select('output').eq('project_id', id).eq('kind', 'breakdown').eq('status', 'done')
-      .order('created_at', { ascending: false }).limit(1).maybeSingle();
-    if (!data?.output) return c.json({ seeded: false });
-    await writeComposition(dir, parseStoryboard(data.output));
+    if (!isBlank(await readComposition(dir))) return c.json({ seeded: false });
+    const latest = await latestBreakdown(db, c.get('user'), id);
+    if (!latest) return c.json({ seeded: false });
+    await writeComposition(dir, latest.storyboard);
     return c.json({ seeded: true });
   });
 
-  // Reference images and videos per shot, in <project>/references/shot-<n>/ (the editor sees them too).
-  const refPath = (c: Context<Env>) => {
-    const shot = Number(c.req.param('shot')), name = c.req.param('name') ?? '';
-    if (!Number.isInteger(shot) || shot < 1 || shot > 999 || !SAFE_NAME.test(name) || !REFERENCE.test(name)) return null;
-    return join(projectDir(c.get('user'), c.req.param('id')!), 'references', `shot-${shot}`, name);
-  };
+  // Reference images and videos per shot.
+  const refPathFor = (c: Context<Env>) => refPath(c.get('user'), c.req.param('id')!, Number(c.req.param('shot')), c.req.param('name') ?? '');
   app.get('/api/playground/:id/references', async c => {
     if (!await owns(c.get('user'), c.req.param('id'))) return c.json({ error: 'not found' }, 404);
-    const root = join(projectDir(c.get('user'), c.req.param('id')), 'references');
-    const refs: { shot: number; name: string }[] = [];
-    for (const dir of await readdir(root).catch(() => [] as string[])) {
-      const shot = Number(dir.match(/^shot-(\d+)$/)?.[1]);
-      if (shot) for (const name of await readdir(join(root, dir))) if (REFERENCE.test(name)) refs.push({ shot, name });
-    }
-    return c.json(refs);
+    return c.json(await listReferences(c.get('user'), c.req.param('id')));
   });
   app.put('/api/playground/:id/references/:shot/:name', async c => {
     if (!await owns(c.get('user'), c.req.param('id'))) return c.json({ error: 'not found' }, 404);
-    const path = refPath(c);
+    const path = refPathFor(c);
     if (!path) return c.json({ error: 'Images (JPG, PNG, WebP, GIF) and videos (MP4, MOV, WebM) only, with a plain file name.' }, 400);
     try { await saveBody(c.req.raw, path, 200 * MB); }
     catch (e) { return c.json({ error: e instanceof UploadError ? e.message : 'The upload failed. Please try again.' }, 400); }
     return c.json({ ok: true });
   });
   app.delete('/api/playground/:id/references/:shot/:name', async c => {
-    const path = await owns(c.get('user'), c.req.param('id')) ? refPath(c) : null;
+    const path = await owns(c.get('user'), c.req.param('id')) ? refPathFor(c) : null;
     if (!path) return c.json({ error: 'not found' }, 404);
     await rm(path, { force: true });
     return c.json({ ok: true });

@@ -3,7 +3,7 @@ import type { Storyboard } from '../storyboard/composition';
 
 // Jobs run on the Railway worker (see worker/). The browser only queues them and reads results.
 export type JobStatus = 'queued' | 'running' | 'done' | 'failed';
-export type BreakdownJob = { id: string; kind: 'breakdown'; status: JobStatus; input: { script: string; vision: Record<string, unknown> }; output: Storyboard | null; error: string | null };
+export type BreakdownJob = { id: string; kind: 'breakdown'; status: JobStatus; input: { script: string; vision: Record<string, unknown>; source?: 'mcp' }; output: Storyboard | null; error: string | null };
 export type ScriptJob = { id: string; kind: 'script'; status: JobStatus; input: { idea: string; platform: string; length: number; tone: string }; output: { title: string; script: string } | null; error: string | null };
 export type BlockoutJob = { id: string; kind: 'blockout'; status: JobStatus; input: { breakdown_id: string; shots: number[] }; output: { files: string[]; shots: number[] } | null; error: string | null };
 export type Job = BreakdownJob | ScriptJob | BlockoutJob;

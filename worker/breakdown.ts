@@ -2,23 +2,12 @@ import Anthropic from '@anthropic-ai/sdk';
 import { readFileSync } from 'node:fs';
 import { parseStoryboard, type Storyboard } from '../frontend/src/storyboard/composition.ts';
 import { JobError } from './job-error.ts';
+import { BREAKDOWN_SCHEMA } from './schemas.ts';
 
 // The shot-breakdown skill (worker/prompts/system.md) plus its reference files, cached as one system prompt.
-const SYSTEM = ['system.md', 'vision-playbooks.md', 'director-principles.md', 'shot-codes.md', 'lighting-design.md']
+export const BREAKDOWN_PROMPTS = ['system.md', 'vision-playbooks.md', 'director-principles.md', 'shot-codes.md', 'lighting-design.md'];
+const SYSTEM = BREAKDOWN_PROMPTS
   .map(f => readFileSync(new URL(`./prompts/${f}`, import.meta.url), 'utf8')).join('\n\n---\n\n');
-
-const str = { type: 'string' };
-const object = (properties: Record<string, object>) => ({ type: 'object', properties, required: Object.keys(properties), additionalProperties: false });
-const SCHEMA = object({
-  title: str, brief: str,
-  scenes: { type: 'array', items: object({
-    heading: str, lighting: str,
-    shots: { type: 'array', items: object({
-      description: str, magnification: str, movement: str, lens: str, angle: str, position: str,
-      lighting: str, notes: str, audio: str, duration: { type: 'integer' },
-    }) },
-  }) },
-});
 
 export type Vision = { format: string; method: string; aspect: '16:9' | '9:16'; runtime: number; feel: string };
 
@@ -43,7 +32,7 @@ export async function breakdown(client: Anthropic, input: { script?: unknown; vi
     // Anthropic-only fallback; proxies like OpenRouter reject it.
     ...(process.env.ANTHROPIC_BASE_URL ? {} : { betas: ['server-side-fallback-2026-07-01'], fallbacks: 'default' as const }),
     thinking: { type: 'adaptive' },
-    output_config: { effort: 'high', format: { type: 'json_schema', schema: SCHEMA } },
+    output_config: { effort: 'high', format: { type: 'json_schema', schema: BREAKDOWN_SCHEMA } },
     system: [{ type: 'text', text: SYSTEM, cache_control: { type: 'ephemeral' } }],
     messages: [{ role: 'user', content: `Vision form:\n${form}\n\nScript:\n<script>\n${script}\n</script>` }],
   });
