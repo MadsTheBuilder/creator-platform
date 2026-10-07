@@ -79,9 +79,11 @@ export async function finish(job: TranscribeJob) {
     }
 
     // A browser-friendly working copy: phone HEVC doesn't play in Chrome, and renders want a constant frame rate.
+    // A keyframe every second: the checker, snapshots and editor seek all over the clip, and a long GOP made
+    // hyperframes check on a 60 s talking head take ~90 s instead of ~20 s.
     const out = join(media, video ? 'recording.mp4' : 'recording.m4a'), tmp = join(media, `.recording-tmp${video ? '.mp4' : '.m4a'}`);
     const picture = video ? ['-vf', 'scale=w=min(1920\\,iw):h=min(1920\\,ih):force_original_aspect_ratio=decrease:force_divisible_by=2,fps=30',
-      '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '20', '-pix_fmt', 'yuv420p'] : ['-vn'];
+      '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '20', '-g', '30', '-pix_fmt', 'yuv420p'] : ['-vn'];
     try {
       await run('ffmpeg', ['-v', 'error', '-y', '-i', src, ...picture, '-c:a', 'aac', '-b:a', '192k', '-ar', '48000', '-movflags', '+faststart', tmp], { timeout: 60 * 60_000, maxBuffer: 4 * MB });
     } catch (e) {

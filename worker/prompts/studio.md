@@ -114,7 +114,14 @@ Three sections, in this order, in Markdown:
 - Composition rules, the root element and GSAP loading are the same as any project here (see below). Load
   GSAP from the local `gsap.min.js`, never a CDN. The root's `data-width`/`data-height` must match the chosen
   aspect (1080x1920 for 9:16, 1920x1080 for 16:9) and `data-duration` the recording's length.
-- Every `save_composition` runs `hyperframes check`; errors block the save and come back to fix.
+- **Every video you upload to `media/`** (b-roll, generated clips) must have a keyframe every second, or every
+  check, snapshot and editor scrub crawls (a long GOP made a 60 s check take ~90 s, past the save's time limit).
+  Re-encode before uploading: `ffmpeg -i in.mp4 -vf "scale=-2:'min(1080,ih)',fps=30" -c:v libx264 -preset veryfast
+  -crf 20 -g 30 -pix_fmt yuv420p -c:a aac -movflags +faststart out.mp4` (add `-an` for silent b-roll). The
+  recording's working copy is already made this way.
+- Every `save_composition` runs `hyperframes check` (about 20–40 s); errors block the save and come back to fix.
+  Fonts: use only families the renderer resolves (e.g. Playfair Display, Montserrat, Bebas Neue, Noto Sans,
+  Times New Roman, Arial) or declare `@font-face`; anything else (e.g. Noto Serif) is an error.
 - `snapshot` renders real frames on the server (about 10 s) and returns them as images. Use it as your eyes.
 
 The general composition guide and the HyperFrames reference for this pinned version follow.
