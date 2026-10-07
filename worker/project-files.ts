@@ -85,7 +85,7 @@ export async function listReferences(user: string, id: string) {
   const refs: { shot: number; name: string }[] = [];
   for (const dir of await readdir(root).catch(() => [] as string[])) {
     const shot = Number(dir.match(/^shot-(\d+)$/)?.[1] ?? NaN);
-    if (shot >= 0) for (const name of await readdir(join(root, dir))) if (REFERENCE.test(name)) refs.push({ shot, name });
+    if (shot >= 0) for (const name of await readdir(join(root, dir))) if (REFERENCE.test(name) && !name.startsWith('.')) refs.push({ shot, name });
   }
   return refs;
 }

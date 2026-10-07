@@ -2,7 +2,7 @@
 // and a scratch DATA_DIR. Run: npm test (in worker/).
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
@@ -194,6 +194,7 @@ test('studio: transcript, beat plan, uploads and beats', { timeout: 120_000 }, a
 
   const plan = await call(client, 'save_plan', { project_id: project.id, plan: 'Brief: one line of light.\n0-2 s · Namaste · the line wakes · whoosh' });
   assert.equal(plan.structuredContent.saved, true);
+  assert.match(await readFile(join(dir, 'BRIEF.md'), 'utf8'), /one line of light/);
   const got = await call(client, 'get_project', { project_id: project.id });
   assert.match(got.structuredContent.project.beat_plan, /one line of light/);
   assert.deepEqual(got.structuredContent.transcript, { words: 2, seconds: 1.1 });
@@ -299,5 +300,21 @@ test('a Studio project keeps project-wide references (shot 0) next to per-shot o
   }
   const refs = (await call(client, 'list_references', { project_id: project.id })).structuredContent.references;
   assert.deepEqual(refs.map((r: Row) => [r.shot, r.name]).sort(), [[0, 'look.png'], [2, 'cam.mp4']]);
+  await client.close();
+});
+
+test('list_references shows the model each reference: images, and videos as a frame sheet', { timeout: 120_000 }, async () => {
+  const { refPath } = await import('./project-files.ts');
+  const client = await connect('modern');
+  const { structuredContent: { project } } = await call(client, 'create_project', { name: 'Look refs', track: 'studio' });
+  const still = refPath(ME, project.id, 0, 'look.png')!, clip = refPath(ME, project.id, 0, 'motion.mp4')!;
+  await mkdir(join(still, '..'), { recursive: true });
+  execFileSync('ffmpeg', ['-v', 'error', '-y', '-f', 'lavfi', '-i', 'testsrc2=s=320x180', '-frames:v', '1', still]);
+  execFileSync('ffmpeg', ['-v', 'error', '-y', '-f', 'lavfi', '-i', 'testsrc2=d=4:s=320x180:r=25', '-pix_fmt', 'yuv420p', clip]);
+  const result = await call(client, 'list_references', { project_id: project.id });
+  assert.equal(result.content.filter((c: Row) => c.type === 'image').length, 2);
+  assert.match(result.content[0].text, /motion\.mp4/);
+  // The cached sheet is not itself a reference.
+  assert.equal(JSON.parse((await call(client, 'list_references', { project_id: project.id })).content[0].text).references.length, 2);
   await client.close();
 });

@@ -36,7 +36,8 @@ const hyperframes = (args: string[], timeout: number) =>
 
 const INSTRUCTIONS = `Creator Platform: the creator's video projects, each on one of two tracks. Production (footage that is shot or AI-generated):
 script -> shot breakdown -> storyboard -> Blender blockout -> HyperFrames edit. Studio (motion graphics built in code around the creator's own
-recording): recording + transcript -> direction -> beat plan -> HyperFrames build -> edit. Start with list_projects / get_project (it says the track). Before writing a script, breakdown, composition or blockout, read get_guide for that topic: it is the
+recording, or around music alone): direction + references -> transcript -> sound -> beat plan (approved) -> HyperFrames build -> snapshot critique -> edit;
+read get_guide("studio") first. Start with list_projects / get_project (it says the track). Before writing a script, breakdown, composition or blockout, read get_guide for that topic: it is the
 platform's own playbook and changes with the site. Everything you save appears live in the creator's Playground. Saves are validated; when one
 is refused the message says what to fix. Never invent metrics or results for the creator.`;
 
@@ -307,16 +308,40 @@ export function createMcp(db: SupabaseClient) {
 
     server.registerTool('list_references', {
       title: 'List references',
-      description: 'Reference images and videos the creator attached per shot (used for the 3D step and AI video). shot 0 means project-wide: a Studio project\'s visual references for the whole video. Paths are relative to the composition.',
+      description: 'Reference images and videos the creator attached per shot (used for the 3D step and AI video). shot 0 means project-wide: a Studio project\'s visual references for the whole video. Paths are relative to the composition. Returns the images themselves, and each video as a sheet of 16 frames, so you can see them.',
       inputSchema: z.object({ project_id: projectId }),
       annotations: read,
-    }, guarded('list_references', async ({ project_id }) => ok({
-      references: (await listReferences(user, project_id)).map(r => ({ ...r, path: `references/shot-${r.shot}/${r.name}` })),
-    })));
+    }, guarded('list_references', async ({ project_id }) => {
+      const references = (await listReferences(user, project_id)).map(r => ({ ...r, path: `references/shot-${r.shot}/${r.name}` }));
+      // Show the model what they look like: images as light JPEGs, videos as a 4x4 sheet of evenly spaced frames
+      // (cached next to the video as .<name>.sheet.jpg). Shot 0 (the whole video's look) first; files ffmpeg can't read are skipped.
+      const dir = projectDir(user, project_id);
+      await mkdir(join(DATA, 'tmp'), { recursive: true });
+      const tmp = await mkdtemp(join(DATA, 'tmp', 'refs-'));
+      const images: ({ type: 'text'; text: string } | { type: 'image'; data: string; mimeType: string })[] = [];
+      try {
+        for (const r of [...references].sort((a, b) => a.shot - b.shot).slice(0, 8)) {
+          const src = join(dir, r.path);
+          const video = /\.(mp4|mov|webm)$/i.test(r.name);
+          const jpg = video ? join(dir, 'references', `shot-${r.shot}`, `.${r.name}.sheet.jpg`) : join(tmp, `${images.length}.jpg`);
+          try {
+            if (video && ((await stat(jpg).catch(() => null))?.mtimeMs ?? 0) < (await stat(src)).mtimeMs) {
+              const seconds = Number((await run('ffprobe', ['-v', 'error', '-show_entries', 'format=duration', '-of', 'csv=p=0', src])).stdout) || 1;
+              await run('ffmpeg', ['-v', 'error', '-y', '-i', src, '-vf', `fps=${16 / seconds},scale=480:-2,tile=4x4`, '-frames:v', '1', '-q:v', '4', jpg], { timeout: 120_000 });
+            } else if (!video) await run('ffmpeg', ['-v', 'error', '-y', '-i', src, '-vf', 'scale=960:-2', '-frames:v', '1', '-q:v', '4', jpg]);
+            images.push({ type: 'text', text: `${r.path}${video ? ' (16 frames, evenly spaced, left to right, top to bottom):' : ':'}` },
+              { type: 'image', data: (await readFile(jpg)).toString('base64'), mimeType: 'image/jpeg' });
+          } catch { /* not a readable image or video */ }
+        }
+      } finally { await rm(tmp, { recursive: true, force: true }); }
+      if (!images.length) return ok({ references });
+      // No structuredContent: clients that prefer it would drop the images.
+      return { content: [{ type: 'text', text: JSON.stringify({ references }, null, 1) }, ...images] } as Result;
+    }));
 
     server.registerTool('create_upload_url', {
       title: 'Get an upload link',
-      description: 'A single-use link (10 minutes) to upload one file: PUT the file bytes to it, e.g. curl -T file.jpg "<url>". target "reference" (default): an image or video for a shot (JPG, PNG, WebP, GIF, MP4, MOV, WebM up to 200 MB). target "media" (Studio track): a recording, voiceover, music or sound effect into media/ (MP4, MOV, WebM, M4A, MP3, WAV, AAC, OGG up to 1 GB); after uploading a recording, call transcribe_recording, which runs on the creator\'s computer.',
+      description: 'A single-use link (10 minutes) to upload one file: PUT the file bytes to it, e.g. curl -T file.jpg "<url>". target "reference" (default): an image or video for a shot (JPG, PNG, WebP, GIF, MP4, MOV, WebM up to 1 GB). target "media" (Studio track): a recording, voiceover, music or sound effect into media/ (MP4, MOV, WebM, M4A, MP3, WAV, AAC, OGG up to 1 GB); after uploading a recording, call transcribe_recording, which runs on the creator\'s computer.',
       inputSchema: z.object({
         project_id: projectId, target: z.enum(['reference', 'media']).default('reference'),
         shot: z.int().min(1).max(999).optional().describe('Shot number, for target "reference".'),
@@ -329,7 +354,7 @@ export function createMcp(db: SupabaseClient) {
       const path = media ? mediaPath(user, project_id, name) : refPath(user, project_id, shot!, name);
       if (!path) return refuse(`Use a plain file name (letters, digits, spaces, . ( ) -) ending in ${media ? '.mp4, .mov, .webm, .m4a, .mp3, .wav, .aac or .ogg' : '.jpg, .jpeg, .png, .webp, .gif, .mp4, .mov or .webm'}.`);
       const token = randomBytes(24).toString('base64url');
-      uploads.set(token, { user, project: project_id, path, limit: (media ? 1024 : 200) * MB, until: Date.now() + 10 * 60_000 });
+      uploads.set(token, { user, project: project_id, path, limit: 1024 * MB, until: Date.now() + 10 * 60_000 });
       const origin = String(authInfo?.extra?.origin ?? '');
       return ok({ url: `${origin}/mcp-upload/${token}`, method: 'PUT', path: media ? `media/${name}` : `references/shot-${shot}/${name}`, expires_in_seconds: 600 });
     }));
@@ -474,7 +499,8 @@ The first run downloads whisper.cpp and the speech model (~1.6 GB) into a cache,
     }, guarded('save_plan', async ({ project_id, plan }) => {
       const { error } = await db.from('projects').update({ beat_plan: plan, updated_at: new Date().toISOString() }).eq('id', project_id).eq('user_id', user);
       if (error) throw error;
-      return ok({ saved: true }, 'Saved; it shows in Playground > Direct. Ask the creator to approve or change it before building.');
+      await writeFile(join(await ensureProject(user, project_id), 'BRIEF.md'), plan);
+      return ok({ saved: true }, 'Saved; it shows in Playground > Direct (and as BRIEF.md in the project folder). Ask the creator to approve or change it before building.');
     }));
 
     server.registerTool('analyze_beats', {

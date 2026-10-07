@@ -1,44 +1,74 @@
-# Studio track: a motion-graphics video built around the creator's recording
+# Studio track: a motion-graphics video built in code
 
 Studio projects (get_project says `track: "studio"`) are not shot or storyboarded. The picture is code: one
-HyperFrames composition around the creator's own recording, timed to their words and to the music. You are
+HyperFrames composition, built around the creator's own recording (timed to their words and the music) or,
+with no recording, around the music and the concept alone. You are
 the only author. The creator judges the result against motion graphics they admire online, so the bar is
 "looks produced", not "has the content".
 
 ## The order of work
 
-1. **Read the project.** `get_project` gives the direction (their look and feel in a few lines, often with
-   reference links; `references` with `shot: 0` are the creator's own visual references for the whole video, look at them), the beat plan if one exists, the media files and the transcript status. If there is no
-   transcript yet, ask the creator to upload their recording in Playground > Direct (or upload one for
-   them with `create_upload_url` target `media`, then `transcribe_recording`). Speech to text runs on the
-   creator's computer: if you have a shell there, run the two commands `transcribe_recording` returns (in the
-   background: the first run downloads ~1.6 GB); otherwise pass `on: "helper"` for their helper app.
-2. **Read the words.** `get_transcript` returns every word with start and end times in seconds. The recording
-   is the spine: cuts, reveals and captions land on its words and pauses. Speech-to-text mishears names and
-   sometimes leaves stray characters from other alphabets: if the project has a script (or the creator gives you
-   one), compare and correct the words with `fix_transcript` before you time anything to them.
+Do every step yourself, in order. The creator should only have to write the direction, attach references,
+approve the plan and watch the result.
+
+1. **Read the project and refine the ask.** `get_project` gives the direction, the beat plan if one exists, the
+   media files and the transcript status. Work out the **idea**, the **format** (9:16 or 16:9) and the **length**.
+   If any of the three is missing and can't be inferred, ask the creator at most three short questions, once;
+   otherwise go on. Then pick the mode:
+   - **Recording-led:** the creator recorded themselves (or a voiceover). The transcript is the spine. If there is
+     no transcript yet, ask them to upload the recording in Playground > Direct (or, if the file is on this
+     computer, upload it with `create_upload_url` target `media`, then `transcribe_recording`). Speech to text
+     runs on the creator's computer: if you have a shell there, run the two commands `transcribe_recording`
+     returns (in the background: the first run downloads ~1.6 GB); otherwise pass `on: "helper"`.
+   - **Music- or visual-led:** no recording (the direction is a concept, like "the evolution of humans drawn by
+     one point of light"). The music's beat grid, or your own timing in the brief, is the spine. Don't ask for
+     a recording.
+2. **Study the references before you plan.** `list_references` returns the creator's images and each reference
+   video as a sheet of 16 frames: look at every one. If the direction names files on the creator's computer
+   (e.g. `C:\Videos\ref.mp4`, used for references too big to upload) and you have a shell, study them there:
+   frames at every cut (`ffmpeg -i ref.mp4 -vf "select='gt(scene,0.3)',scale=480:-2,tile=4x4" -fps_mode vfr
+   -frames:v 1 cuts.jpg`, more sheets for long clips), the cut rhythm (count the cuts over the duration), and the
+   music's tempo. Links you can't open: say so rather than guess.
+3. **Read the words** (recording-led). `get_transcript` returns every word with start and end times in seconds.
+   Cuts, reveals and captions land on its words and pauses. Speech-to-text mishears names and sometimes leaves
+   stray characters from other alphabets: if the project has a script (or the creator gives you one), compare
+   and correct the words with `fix_transcript` before you time anything to them.
    **Devanagari to Roman:** whisper often writes Hindi in Devanagari whatever the creator chose. If `get_project`
    says `writing: "roman"` and `get_transcript` reports Devanagari words, convert them all with `fix_transcript`
    before anything else. Use the script's spelling where it has the word; otherwise common Roman Hinglish
    ("shaam", "bheed", "hai"). Keep English words in English.
-3. **Pick the music first** (if there is any in `media/`), then `analyze_beats` it. Section changes go on bar
-   lines (every 4 or 8 beats), hits and cuts on beats. Without music, the transcript's phrase ends are the beat.
-4. **Write the beat plan** and save it with `save_plan`. It shows on the Direct step. Then stop and ask the
-   creator to approve or change it. Do not build before they approve.
-5. **Build** one composition (`get_composition`, then `save_composition` with its hash).
-6. **Look at it.** `snapshot` at the moments that matter (every section change, the biggest hit, a caption
-   mid-word, the last frame). Critique each frame against the brief and the rules below, fix, save, snapshot
-   again. At least one full round before you tell the creator it's ready. Say what you changed.
-7. Tell the creator it is in Playground > Video edit, where they can scrub, tweak and render.
+4. **Sound.** If there is music in `media/`, `analyze_beats` it: section changes on bar lines (every 4 or 8
+   beats), hits and cuts on beats. If `media/` has no music or no sound effects and you have a shell, make
+   them: synthesize a score and hit sounds timed to your beats (Python with numpy if it is installed, otherwise
+   ffmpeg `-f lavfi` sources: `sine`, `anoisesrc`, with `afade`, `lowpass`, `aecho`): a pad that changes with
+   the sections, a soft pulse or whoosh into each reveal, a bell or impact on each hit. Normalise to −14 LUFS
+   (`ffmpeg -i score.wav -af loudnorm=I=-14:TP=-1:LRA=11 -ar 48000 score-final.wav`) and upload with
+   `create_upload_url` target `media`. No shell: ask the creator for music and sound effects, or tell them the
+   piece will be quieter than the references.
+5. **Write the plan** (format below) and save it with `save_plan`. It shows on the Direct step and is saved as
+   `BRIEF.md` in the project folder. Then **stop** and ask the creator to approve or change it. Do not build
+   before they approve.
+6. **Build** one composition (`get_composition`, then `save_composition` with its hash).
+7. **Look at it.** `snapshot` at the moments that matter (every section change, the biggest hit, a caption
+   mid-word, the last frame). Critique each frame against the brief, the references and the rules below, fix,
+   save, snapshot again. At least two full rounds before you tell the creator it's ready. Say what you changed
+   in each round.
+8. Tell the creator it is in Playground > Video edit, where they can scrub, tweak and render.
 
-## The beat plan (what save_plan holds)
+## The plan (what save_plan holds)
 
-- **The brief, in four lines:** the one idea that carries the piece; the single visual device that carries the
+Three sections, in this order, in Markdown:
+
+- **What I took from the references:** one specific line each for look (medium, light, lens, texture), colour
+  and accent, type (family, weight, size, how it moves), camera, transitions, cut rhythm (e.g. "a cut every
+  ~1.2 s, hard cuts on the kick"), and sound. Specific enough that the creator can tell if you misread them. No
+  references: say so in one line.
+- **Brief, in four lines:** the one idea that carries the piece; the single visual device that carries the
   whole thing (one continuous world, not a slideshow of frames); the look named as medium + light + lens +
   texture (e.g. "light painting in a black room, long exposure, wide lens, haze and film grain"); one accent
-  colour.
-- **Beats:** one line per beat: `start–end s · what is said · what we see · the sound on the hit`. Times come
-  from the transcript (and the beat grid when there is music). 2–6 seconds per beat for short-form.
+  colour. Then the format, length and mode, and where the sound comes from.
+- **Beats:** one line per beat: `start–end s · what is said (or "—") · what we see · the sound on the hit`. Times
+  come from the transcript (and the beat grid when there is music). 2–6 seconds per beat for short-form.
 - **Length and format:** match the recording's length and aspect (9:16 for Shorts/Reels/TikTok, 16:9 for
   YouTube) unless the creator says otherwise.
 

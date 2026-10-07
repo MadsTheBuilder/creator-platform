@@ -128,6 +128,8 @@ export function startServer(db: SupabaseClient, port: number) {
     return c.json({ seeded: true });
   });
 
+  // Uploads (references and Studio media) up to 1 GB, while the volume keeps hasRoom's margin.
+  const MEDIA_LIMIT = 1024 * MB;
   // Reference images and videos per shot.
   const refPathFor = (c: Context<Env>) => refPath(c.get('user'), c.req.param('id')!, Number(c.req.param('shot')), c.req.param('name') ?? '');
   app.get('/api/playground/:id/references', async c => {
@@ -138,7 +140,8 @@ export function startServer(db: SupabaseClient, port: number) {
     if (!await owns(c.get('user'), c.req.param('id'))) return c.json({ error: 'not found' }, 404);
     const path = refPathFor(c);
     if (!path) return c.json({ error: 'Images (JPG, PNG, WebP, GIF) and videos (MP4, MOV, WebM) only, with a plain file name.' }, 400);
-    try { await saveBody(c.req.raw, path, 200 * MB); }
+    if (!await hasRoom(Number(c.req.header('content-length')) || MEDIA_LIMIT)) return c.json({ error: 'The server is out of space for uploads right now. Please try again later.' }, 507);
+    try { await saveBody(c.req.raw, path, MEDIA_LIMIT); }
     catch (e) { return c.json({ error: e instanceof UploadError ? e.message : 'The upload failed. Please try again.' }, 400); }
     return c.json({ ok: true });
   });
@@ -149,7 +152,6 @@ export function startServer(db: SupabaseClient, port: number) {
     return c.json({ ok: true });
   });
   // Studio track: the recording (then transcribed by a 'transcribe' job), music and sound effects.
-  const MEDIA_LIMIT = 1024 * MB;
   app.get('/api/playground/:id/media', async c => {
     if (!await owns(c.get('user'), c.req.param('id'))) return c.json({ error: 'not found' }, 404);
     return c.json(await listMedia(c.get('user'), c.req.param('id')));
