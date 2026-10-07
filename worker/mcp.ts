@@ -106,10 +106,13 @@ async function check(dir: string, html: string) {
   try {
     const out = await hyperframes(['check', '--json', '--no-contrast', scratch], 120_000)
       .catch((e: { stdout?: string }) => ({ stdout: e.stdout ?? '' }));
-    let report: Record<string, { findings?: { severity: string; code: string; message: string; selector?: string; fixHint?: string }[] }> & { ok?: boolean };
+    type Finding = { severity: string; code: string; message: string; selector?: string; containerSelector?: string; text?: string; firstSeen?: number; lastSeen?: number; fixHint?: string };
+    let report: Record<string, { findings?: Finding[] }> & { ok?: boolean };
     try { report = JSON.parse(out.stdout); } catch { return { ran: false, errors: [], warnings: [] }; }
+    // `with` is the other element (the block it overlaps, the container it overflows): without it the fix is a guess.
     const findings = ['lint', 'runtime', 'layout', 'motion'].flatMap(k => report[k]?.findings ?? [])
-      .map(f => ({ severity: f.severity, code: f.code, message: f.message, where: f.selector, fix: f.fixHint }));
+      .map(f => ({ severity: f.severity, code: f.code, message: f.message, where: f.selector, with: f.containerSelector, text: f.text,
+        seconds: f.firstSeen === undefined ? undefined : `${f.firstSeen}-${f.lastSeen}`, fix: f.fixHint }));
     return { ran: true, errors: findings.filter(f => f.severity === 'error'), warnings: findings.filter(f => f.severity === 'warning').slice(0, 20) };
   } finally { await rm(scratch, { recursive: true, force: true }); }
 }

@@ -120,6 +120,10 @@ Three sections, in this order, in Markdown:
   -crf 20 -g 30 -pix_fmt yuv420p -c:a aac -movflags +faststart out.mp4` (add `-an` for silent b-roll). The
   recording's working copy is already made this way.
 - Every `save_composition` runs `hyperframes check` (about 20–40 s); errors block the save and come back to fix.
+  Each error names the element (`where`) and, for overlaps and overflows, the other element (`with`). Waivers
+  (`data-layout-allow-overlap`, `data-layout-allow-overflow`) only count on the flagged element itself, never on a
+  parent. Stacked text in one card (a big number over a label): make the card `display:flex;flex-direction:column`,
+  which the check treats as managed layout, instead of tight line-heights or negative margins.
   Fonts: use only families the renderer resolves (e.g. Playfair Display, Montserrat, Bebas Neue, Noto Sans,
   Times New Roman, Arial) or declare `@font-face`; anything else (e.g. Noto Serif) is an error.
 - `snapshot` renders real frames on the server (about 10 s) and returns them as images. Use it as your eyes.
