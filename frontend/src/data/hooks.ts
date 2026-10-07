@@ -59,6 +59,21 @@ export function usePlanChanges(userId: string | undefined) {
   return version;
 }
 
+// Counts changes to the creator's styles made anywhere else (another tab, their Claude over MCP).
+export function useStyleChanges(userId: string | undefined) {
+  const [version, setVersion] = useState(0);
+  useEffect(() => {
+    if (!supabase || !userId) return;
+    const bump = () => setVersion(v => v + 1);
+    const channel = supabase.channel(`styles-${userId}-${crypto.randomUUID()}`)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'creator_styles', filter: `user_id=eq.${userId}` }, bump)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'creator_style_files', filter: `user_id=eq.${userId}` }, bump)
+      .subscribe();
+    return () => { supabase!.removeChannel(channel); };
+  }, [userId]);
+  return version;
+}
+
 // Keep the app server's session cookie in step with Supabase. 'ready', 'connecting' or an error.
 export function useAppServer() {
   const [state, setState] = useState('connecting');

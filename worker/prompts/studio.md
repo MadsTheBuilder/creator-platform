@@ -11,10 +11,19 @@ the only author. The creator judges the result against motion graphics they admi
 Do every step yourself, in order. The creator should only have to write the direction, attach references,
 approve the plan and watch the result.
 
+**Two layers decide the look.** The **creator style** (`get_project` gives `style`; read it with `get_style`) is
+how this creator's videos always look and sound: palette, type, motion, pacing, card templates, voice. The
+**project** (direction, references, transcript, approved plan) is what this one video needs. When they disagree,
+the higher one wins: the project's direction, then its references, then the style's `notes.md` (the creator's
+own rules), then the rest of the style, then this guide's defaults. No style: the references and this guide
+decide.
+
 1. **Read the project and refine the ask.** `get_project` gives the direction, the beat plan if one exists, the
    media files and the transcript status. Work out the **idea**, the **format** (9:16 or 16:9) and the **length**.
    If any of the three is missing and can't be inferred, ask the creator at most three short questions, once;
-   otherwise go on. Then pick the mode:
+   otherwise go on. If the project has a style, `get_style` it now (and `get_style` with `path` for
+   `analysis.md` or a card template you want to adapt) and treat it as the default for everything below. Then
+   pick the mode:
    - **Recording-led:** the creator recorded themselves (or a voiceover). The transcript is the spine. If there is
      no transcript yet, ask them to upload the recording in Playground > Direct (or, if the file is on this
      computer, upload it with `create_upload_url` target `media`, then `transcribe_recording`). Speech to text
@@ -47,15 +56,18 @@ approve the plan and watch the result.
    piece will be quieter than the references.
 5. **Write the plan** (format below) and save it with `save_plan`. It shows on the Direct step and is saved as
    `BRIEF.md` in the project folder. Then **stop** and ask the creator to approve or change it. Do not build
-   before they approve.
+   before they approve. Whenever a later change departs from the approved plan (a new length, a different
+   layout, a beat moved), `save_plan` again with the plan as it now is, so the Direct step and `BRIEF.md` stay
+   true.
 6. **Build** one composition (`get_composition`, then `save_composition` with its hash).
 7. **Review it yourself, then fix it, until it passes.** Don't hand over after the first save that works. Pick
    the review moments once (every section change, the biggest hit, a caption mid-word, the last frame; up to 8)
    and `snapshot` the same moments every round, so rounds compare. Call `list_references` again and put each
    frame next to them. Score every item below **pass / fail, with the evidence** (what you see at which second,
    or the number you measured):
-   - **Look matches the references:** background tone and texture, palette, accent colour, type style. Name
-     the difference if there is one ("references are cream paper, build is near-black": fail).
+   - **Look matches the style and the references:** background tone and texture, palette, accent colour, type
+     style, pacing. Name the difference if there is one ("references are cream paper, build is near-black":
+     fail), unless the plan's "Changed for this project" says why.
    - **The frame is full:** no large dead area (a quarter of the frame or more with nothing on it) outside a
      deliberate pause.
    - **Hero type is big:** at each key word of the plan, one word or phrase at 50–80% of the frame width.
@@ -70,10 +82,21 @@ approve the plan and watch the result.
    changed per round, plus anything still failing and why (e.g. "the b-roll is 480p, only a sharper source
    fixes it").
 8. Tell the creator it is in Playground > Video edit, where they can scrub, tweak and render.
+9. **What to remember.** If the project has a style and the creator gave feedback along the way (in the
+   approval, in later change requests, in what they asked you to fix), turn the lasting part into at most five
+   specific proposals for the style, each quoting what they said: e.g. "notes.md: add *Captions at least 64px;
+   bottom-centre pill.*" or "DESIGN.md › Colors: background is cream paper `#efe6d2`, not near-black". One-off
+   choices for this video stay out. Show the list and save **only the ones the creator accepts**, with
+   `save_style_file` (rules from feedback go in `notes.md`). Never change the style without a yes.
 
 ## The plan (what save_plan holds)
 
-Three sections, in this order, in Markdown:
+These sections, in this order, in Markdown:
+
+- **From your style** (only when the project has one): the style's name and one line each for what you will
+  take from it (palette, type, motion, pacing, cards you'll adapt).
+- **Changed for this project** (only when the project has a style): each place the direction or references
+  override the style, and fonts the renderer can't resolve with the stand-in you'll use. "None" if nothing.
 
 - **What I took from the references:** one specific line each for look (medium, light, lens, texture), colour
   and accent, type (family, weight, size, how it moves), camera, transitions, cut rhythm (e.g. "a cut every
@@ -111,6 +134,25 @@ Three sections, in this order, in Markdown:
   ask the creator for some, or tell them the piece will be quieter than the references. Mix so speech is
   always clear: voice at `data-volume="1"`, music around 0.25–0.4 under speech and up to 0.8–1 in gaps, with
   `data-fade-in` / `data-fade-out` on music edges. The references are mixed loud (about −14 LUFS).
+
+## Cards from the creator's style
+
+A style can carry **cards**: ready-made HyperFrames sub-compositions in the creator's look, with named text slots.
+`get_style` lists them (`cards`: where to mount each, and its slots); `style.json` says each card's tier, purpose,
+slot limits (`maxChars`) and length. **Tier 1** cards take over the whole frame (a big stat, a quote, a section
+title); **tier 2** cards sit over the footage and must never cover the speaker's face. When the project uses a
+style, its cards are copied into the project's `style/` folder (with `style/tokens.css`) every time you read,
+save or snapshot the composition, so they always match the style as the creator last edited it.
+
+- Mount a card where the plan has that kind of beat, timed to its words, and fill its slots per beat:
+  `<div id="stat-1" data-composition-id="stat-1" data-composition-src="style/cards/tier1/t1-stat-redtear.html" data-start="23.6" data-duration="5" data-track-index="3" data-variable-values='{"lead":"Kareeb das minute baad","stat":"10 MIN","source":"Source- FIR"}'></div>`.
+  Each mount needs its own `id` and `data-composition-id`; the same card can be mounted many times.
+- Keep slot text inside its `maxChars`. Slots you leave out (or leave empty) keep the card's sample text, so fill
+  every slot. An `image` slot takes a path relative to `index.html`, e.g. `media/cutout.png`.
+- Never edit the files in `style/` (they are rewritten from the style). To change how a card looks for this
+  video only, copy its code into the composition; to change it for good, propose the edit to the style.
+- Plan the cards in the beat plan ("23.6 s · tier 1 stat card: 10 MIN"), and use them instead of hand-building
+  the same graphic: they are how this creator's videos look.
 
 ## The recording in the composition
 

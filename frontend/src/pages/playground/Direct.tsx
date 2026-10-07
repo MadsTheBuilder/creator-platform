@@ -3,6 +3,7 @@ import { MusicNotes, Trash, UploadSimple, X } from '@phosphor-icons/react';
 import { api, safeName, uploadFile } from '../../data/app-server';
 import { useAppServer, usePolled, useProjectChanges } from '../../data/hooks';
 import { updateProject, type Project } from '../../data/projects';
+import { listStyles, type Style } from '../../data/styles';
 import { clock, transcriptLines, type Word } from '../../data/transcript';
 import { active, latestJob, queueJob, type TranscribeJob } from '../../data/video-jobs';
 import { ComputerHelper, useDevices } from '../../components/ComputerHelper';
@@ -38,6 +39,11 @@ export function Direct({ project, onSaved }: { project: Project; onSaved: (p: Pr
   const [direction, setDirection] = useState(project.direction);
   const [refs, setRefs] = useState<Reference[]>([]);
   const [saving, setSaving] = useState(false);
+  const [styles, setStyles] = useState<Style[]>([]);
+  useEffect(() => { listStyles().then(setStyles, e => setError(e.message)); }, []);
+  const [plan, setPlan] = useState(project.beat_plan);
+  const shownPlan = useRef(project.beat_plan);
+  useEffect(() => { if (plan === shownPlan.current) setPlan(project.beat_plan); shownPlan.current = project.beat_plan; }, [project.beat_plan]);
   // Saved elsewhere (another tab, the creator's Claude): show it, unless there are unsaved edits here.
   const shown = useRef(project.direction);
   useEffect(() => { if (direction === shown.current) setDirection(project.direction); shown.current = project.direction; }, [project.direction]);
@@ -92,6 +98,11 @@ export function Direct({ project, onSaved }: { project: Project; onSaved: (p: Pr
     try { onSaved(await updateProject(project.id, { direction })); }
     catch (e) { setError((e as Error).message); } finally { setSaving(false); }
   }
+  async function save(fields: Parameters<typeof updateProject>[1]) {
+    setSaving(true); setError('');
+    try { onSaved(await updateProject(project.id, fields)); }
+    catch (e) { setError((e as Error).message); } finally { setSaving(false); }
+  }
   async function uploadRefs(event: ChangeEvent<HTMLInputElement>) {
     const files = Array.from(event.target.files ?? []);
     event.target.value = '';
@@ -144,6 +155,11 @@ export function Direct({ project, onSaved }: { project: Project; onSaved: (p: Pr
         <textarea aria-label="Direction" rows={9} maxLength={4000} value={direction} onChange={e => setDirection(e.target.value)}
           placeholder={'e.g. Light painting in a dark room: one glowing line draws every idea as I say it. Warm orange on black, haze, slow camera drift, hits on every beat.\nhttps://youtube.com/shorts/…'}/>
         <div className="toolbar-actions"><Button className="primary" disabled={saving || direction === project.direction} onClick={saveDirection}>Save</Button></div>
+        <label>Style<select value={project.style_id ?? ''} disabled={saving} onChange={e => void save({ style_id: e.target.value || null })}>
+          <option value="">No style: the direction and references decide the look</option>
+          {styles.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+        </select></label>
+        <p className="muted">{styles.length ? <>Your Claude builds in this style; your direction and references win where they differ. <a href="#style">Read or edit your styles</a></> : <>No saved styles yet. <a href="#style">Add one</a> so every video starts from your look.</>}</p>
       </section>
     </div>
 
@@ -187,8 +203,9 @@ export function Direct({ project, onSaved }: { project: Project; onSaved: (p: Pr
     </section>
 
     {project.beat_plan.trim() && <section className="glass storyboard-form" aria-label="Beat plan">
-      <div><h2>Beat plan</h2><p className="muted">Written by your Claude from the transcript and your direction. Approve or change it in your Claude chat; it builds only after you approve.</p></div>
-      <p className="storyboard-brief">{project.beat_plan}</p>
+      <div><h2>Beat plan</h2><p className="muted">Written by your Claude from the transcript and your direction. Edit it here or ask for changes in your Claude chat; it builds only after you approve.</p></div>
+      <textarea aria-label="Beat plan" rows={14} maxLength={20000} value={plan} onChange={e => setPlan(e.target.value)}/>
+      <div className="toolbar-actions"><Button className="primary" disabled={saving || plan === project.beat_plan || !plan.trim()} onClick={() => void save({ beat_plan: plan })}>Save plan</Button></div>
     </section>}
     {error && <p role="alert">{error}</p>}
   </div>;

@@ -6,7 +6,8 @@ description: Plan and build a Content Engine Studio-track video, a motion-graphi
 The playbook lives on the server so it always matches the site. Follow it, not your own defaults.
 
 1. `get_project` (use `list_projects` to find it). It must say `track: "studio"`; for a Production project use the `composition` skill instead.
-2. `get_guide` with topic `studio`, and follow it exactly, step by step: refine the ask, study the references, read the words, sound, plan, **stop for approval**, build, snapshot and fix.
+2. `get_guide` with topic `studio`, and follow it exactly, step by step: read the project's creator style (`get_style`), refine the ask, study the references, read the words, sound, plan, **stop for approval**, build, snapshot and fix, then propose what the style should remember (save only what the creator accepts).
 3. If you have a shell on the creator's computer, check `ffmpeg -version` and `python --version` (and `python -c "import numpy"`) once at the start. They are optional: they let you study reference videos stored on this computer and synthesize the score and sound effects. Tell the creator in one line what is missing and what that means for the result; don't install anything without asking.
 4. Recording over 1 GB? Make a 1080p copy before uploading: `ffmpeg -i in.mov -vf scale=-2:1080 -c:v libx264 -crf 20 -c:a aac out.mp4`. Any other video you put in `media/` (b-roll, generated clips) gets re-encoded first with a keyframe every second (`-g 30`, command in the guide), or saves time out.
 5. When it's done, tell the creator it is in Playground > Video edit, which updates live.
+6. A creator-profile style folder on this computer (DESIGN.md, voice.md, analysis.md, style.json, tokens.css, cards/) can be saved as a style with `create_style`: read each file and send its text (not the references/ folder). The creator can also import the folder on the site under Style.

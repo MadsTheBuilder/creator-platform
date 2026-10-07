@@ -18,15 +18,16 @@ function fakeDb(tables: Record<string, Row[]>) {
   const from = (name: string) => {
     const rows = (tables[name] ??= []);
     let filters: ((r: Row) => boolean)[] = [], order: [string, boolean] | null = null, limit = Infinity;
-    let action: 'select' | 'insert' | 'update' = 'select', payload: Row = {};
+    let action: 'select' | 'insert' | 'update' | 'delete' = 'select', payload: Row | Row[] = {};
     const result = () => {
-      if (action === 'insert') {
-        const row = { id: crypto.randomUUID(), status: 'queued', created_at: new Date(Date.now() + rows.length).toISOString(), ...payload };
+      if (action === 'insert') return [payload].flat().map(p => {
+        const row = { id: crypto.randomUUID(), status: 'queued', created_at: new Date(Date.now() + rows.length).toISOString(), ...p };
         rows.push(row);
-        return [row];
-      }
+        return row;
+      });
       let out = rows.filter(r => filters.every(f => f(r)));
       if (action === 'update') { out.forEach(r => Object.assign(r, payload)); return out; }
+      if (action === 'delete') { out.forEach(r => rows.splice(rows.indexOf(r), 1)); return out; }
       if (order) { const [k, asc] = order; out = [...out].sort((a, b) => (a[k] > b[k] ? 1 : -1) * (asc ? 1 : -1)); }
       return out.slice(0, limit);
     };
@@ -34,7 +35,7 @@ function fakeDb(tables: Record<string, Row[]>) {
       select: () => q, eq: (k: string, v: unknown) => (filters.push(r => r[k] === v), q), gt: (k: string, v: any) => (filters.push(r => r[k] > v), q),
       lt: (k: string, v: any) => (filters.push(r => r[k] < v), q), in: (k: string, v: unknown[]) => (filters.push(r => v.includes(r[k])), q),
       order: (k: string, o?: { ascending?: boolean }) => (order = [k, o?.ascending ?? true], q), limit: (n: number) => (limit = n, q),
-      insert: (row: Row) => (action = 'insert', payload = row, q), update: (row: Row) => (action = 'update', payload = row, q),
+      insert: (row: Row | Row[]) => (action = 'insert', payload = row, q), update: (row: Row) => (action = 'update', payload = row, q), delete: () => (action = 'delete', q),
       single: async () => { const r = result(); return r.length === 1 ? { data: r[0], error: null } : { data: null, error: { message: 'not one row' } }; },
       maybeSingle: async () => ({ data: result()[0] ?? null, error: null }),
       then: (ok: (v: unknown) => unknown, bad: (e: unknown) => unknown) => Promise.resolve({ data: result(), error: null }).then(ok, bad),
@@ -50,7 +51,7 @@ const tables: Record<string, Row[]> = {
     { id: MINE, user_id: ME, name: 'Red balloon', track: 'production', direction: '', beat_plan: '', script: 'VO: A red balloon drifts over Mirzapur.', updated_at: '2026-10-01T00:00:00Z' },
     { id: THEIRS, user_id: SOMEONE, name: 'Not mine', track: 'production', direction: '', beat_plan: '', script: '', updated_at: '2026-10-01T00:00:00Z' },
   ],
-  video_jobs: [], bridge_devices: [],
+  video_jobs: [], bridge_devices: [], creator_styles: [], creator_style_files: [],
 };
 const db = fakeDb(tables);
 const handler = createMcp(db);
@@ -78,7 +79,8 @@ for (const mode of ['modern', 'legacy'] as const) {
     const { tools } = await client.listTools();
     assert.deepEqual(tools.map(t => t.name), ['get_guide', 'list_projects', 'create_project', 'get_project', 'save_script', 'get_breakdown', 'save_breakdown',
       'seed_composition', 'get_composition', 'save_composition', 'list_references', 'create_upload_url', 'queue_blockout', 'get_job', 'get_blockout',
-      'get_transcript', 'transcribe_recording', 'fix_transcript', 'save_plan', 'analyze_beats', 'snapshot']);
+      'get_transcript', 'transcribe_recording', 'fix_transcript', 'save_plan', 'analyze_beats', 'snapshot',
+      'list_styles', 'get_style', 'create_style', 'save_style_file']);
     assert.ok(tools.every(t => t.description && t.annotations));
     await client.close();
   });
@@ -318,5 +320,59 @@ test('list_references shows the model each reference: images, and videos as a fr
   assert.match(result.content[0].text, /motion\.mp4/);
   // The cached sheet is not itself a reference.
   assert.equal(JSON.parse((await call(client, 'list_references', { project_id: project.id })).content[0].text).references.length, 2);
+  await client.close();
+});
+
+test('creator styles: owned, default for new projects, saved only against the current hash', async () => {
+  const client = await connect('modern');
+  tables.creator_styles.push({ id: crypto.randomUUID(), user_id: SOMEONE, name: 'Theirs', is_default: true, updated_at: '2026-10-01T00:00:00Z' });
+  const bad = await call(client, 'create_style', { name: 'Bad', files: [{ path: '../index.html', text: 'x' }] });
+  assert.equal(bad.isError, true);
+  const made = await call(client, 'create_style', { name: 'Indian Lawtuber', make_default: true, files: [
+    { path: 'DESIGN.md', text: '# Documentary noir' }, { path: 'style.json', text: '{"palette":{"bg":"#0b0b0c"}}' }, { path: 'analysis.md', text: 'long' },
+    { path: 'cards/tier1/t1-stat-redtear.html', text: '<div></div>' }] });
+  const id = made.structuredContent.style.id;
+  assert.deepEqual((await call(client, 'list_styles')).structuredContent.styles.map((s: Row) => s.name), ['Indian Lawtuber']);
+
+  const style = await call(client, 'get_style', { style_id: id });
+  assert.deepEqual(style.structuredContent.files.map((f: Row) => f.path).sort(), ['DESIGN.md', 'style.json']);
+  assert.equal(style.structuredContent.index.length, 4);
+  assert.equal((await call(client, 'get_style', { style_id: id, path: 'cards/tier1/t1-stat-redtear.html' })).structuredContent.text, '<div></div>');
+  const theirs = tables.creator_styles.find(s => s.user_id === SOMEONE)!;
+  assert.equal((await call(client, 'get_style', { style_id: theirs.id })).isError, true);
+
+  const project = await call(client, 'create_project', { name: 'Styled', track: 'studio' });
+  assert.equal(project.structuredContent.project.style_id, id);
+  assert.equal((await call(client, 'get_project', { project_id: project.structuredContent.project.id })).structuredContent.style.name, 'Indian Lawtuber');
+  assert.equal((await call(client, 'create_project', { name: 'Plain', style_id: null })).structuredContent.project.style_id, null);
+  assert.equal((await call(client, 'create_project', { name: 'Stolen', style_id: theirs.id })).isError, true);
+
+  const design = style.structuredContent.files.find((f: Row) => f.path === 'DESIGN.md');
+  assert.equal((await call(client, 'save_style_file', { style_id: id, path: 'DESIGN.md', text: 'x', expected_hash: '0'.repeat(64) })).isError, true);
+  assert.equal((await call(client, 'save_style_file', { style_id: id, path: 'DESIGN.md', text: '# Cream paper', expected_hash: design.hash })).structuredContent.saved, true);
+  assert.equal((await call(client, 'save_style_file', { style_id: id, path: 'notes.md', text: 'Captions bigger.', expected_hash: '' })).structuredContent.saved, true);
+  assert.equal((await call(client, 'save_style_file', { style_id: id, path: 'notes.md', text: 'Again', expected_hash: '' })).isError, true);
+  assert.equal((await call(client, 'save_style_file', { style_id: theirs.id, path: 'notes.md', text: 'x', expected_hash: '' })).isError, true);
+  const after = await call(client, 'get_style', { style_id: id });
+  assert.equal(after.structuredContent.files.find((f: Row) => f.path === 'DESIGN.md').text, '# Cream paper');
+  assert.ok(after.structuredContent.files.some((f: Row) => f.path === 'notes.md'));
+  assert.deepEqual(after.structuredContent.cards, [{ mount: 'style/cards/tier1/t1-stat-redtear.html', slots: [] }]);
+
+  // The project's folder gets the style's cards as mountable sub-compositions, and loses them with the style.
+  const pid = project.structuredContent.project.id;
+  const card = '<html><head><link rel="stylesheet" href="../../tokens.css"></head><body><div id="c" data-composition-id="c"><div data-slot="stat">$6 Billion</div></div>'
+    + '<script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script><script>window.__timelines={c:gsap.timeline({paused:true})}</script></body></html>';
+  await call(client, 'save_style_file', { style_id: id, path: 'cards/tier1/t1-stat-redtear.html', text: card,
+    expected_hash: (await call(client, 'get_style', { style_id: id, path: 'cards/tier1/t1-stat-redtear.html' })).structuredContent.hash });
+  await call(client, 'save_style_file', { style_id: id, path: 'tokens.css', text: ':root{--red:#e10a14}', expected_hash: '' });
+  await call(client, 'get_composition', { project_id: pid });
+  const mounted = await readFile(join(projectDir(ME, pid), 'style/cards/tier1/t1-stat-redtear.html'), 'utf8');
+  assert.match(mounted, /data-composition-variables='\[\{"id":"stat","type":"string","label":"stat","default":"\$6 Billion"\}\]'/);
+  assert.match(mounted, /<script src="\.\.\/\.\.\/\.\.\/gsap\.min\.js"><\/script><script>/);
+  assert.doesNotMatch(mounted, /cdn\.jsdelivr/);
+  assert.equal(await readFile(join(projectDir(ME, pid), 'style/tokens.css'), 'utf8'), ':root{--red:#e10a14}');
+  tables.projects.find(p => p.id === pid)!.style_id = null;
+  await call(client, 'get_composition', { project_id: pid });
+  await assert.rejects(readFile(join(projectDir(ME, pid), 'style/tokens.css'), 'utf8'));
   await client.close();
 });

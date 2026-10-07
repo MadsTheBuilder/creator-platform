@@ -22,6 +22,7 @@ import {
   readTranscript, refPath, saveBody, sha256, touchProject, UploadError, UUID, writeComposition,
 } from './project-files.ts';
 import { BREAKDOWN_SCHEMA } from './schemas.ts';
+import { cardSlots, syncStyle } from './style-files.ts';
 import { probe, ticketFor } from './transcribe.ts';
 
 // Changes exactly when the tools or playbooks change, so clients can tell a new surface from a restart.
@@ -37,7 +38,7 @@ const hyperframes = (args: string[], timeout: number) =>
 const INSTRUCTIONS = `Creator Platform: the creator's video projects, each on one of two tracks. Production (footage that is shot or AI-generated):
 script -> shot breakdown -> storyboard -> Blender blockout -> HyperFrames edit. Studio (motion graphics built in code around the creator's own
 recording, or around music alone): direction + references -> transcript -> sound -> beat plan (approved) -> HyperFrames build -> snapshot critique -> edit;
-read get_guide("studio") first. Start with list_projects / get_project (it says the track). Before writing a script, breakdown, composition or blockout, read get_guide for that topic: it is the
+read get_guide("studio") first. A project may use one of the creator's saved styles (get_project says which; read it with get_style). Start with list_projects / get_project (it says the track). Before writing a script, breakdown, composition or blockout, read get_guide for that topic: it is the
 platform's own playbook and changes with the site. Everything you save appears live in the creator's Playground. Saves are validated; when one
 is refused the message says what to fix. Never invent metrics or results for the creator.`;
 
@@ -79,6 +80,9 @@ const refuse = (text: string): Result => ({ content: [{ type: 'text', text }], i
 // The same schema the worker's own Claude call is held to (schemas.ts).
 const STORYBOARD = z.fromJSONSchema(BREAKDOWN_SCHEMA as never) as z.ZodType<Omit<Storyboard, 'aspect'>>;
 const projectId = z.string().regex(UUID).describe('Project id from list_projects.');
+// The same paths creator_style_files allows (migration 20261011090000_creator_styles.sql).
+const STYLE_PATH = /^(DESIGN\.md|voice\.md|analysis\.md|style\.json|tokens\.css|notes\.md|cards\/[a-z0-9-]{1,40}\/[a-z0-9-]{1,60}\.html)$/;
+const CORE_STYLE_FILES = ['notes.md', 'DESIGN.md', 'style.json', 'tokens.css', 'voice.md'];
 const requestId = z.string().max(100).optional().describe('Optional. Repeating a call with the same request_id returns the first result instead of acting twice.');
 
 function summary(sb: Storyboard) {
@@ -164,22 +168,28 @@ export function createMcp(db: SupabaseClient) {
     server.registerTool('create_project', {
       title: 'Create a project',
       description: 'A new, empty Playground project. The track is fixed once created: "production" for footage that is shot or AI-generated (planned shot by shot), "studio" for motion graphics built in code around the creator\'s own recording. Ask the creator which if it is not clear.',
-      inputSchema: z.object({ name: z.string().trim().min(1).max(80), track: z.enum(['production', 'studio']).default('production'), request_id: requestId }),
+      inputSchema: z.object({
+        name: z.string().trim().min(1).max(80), track: z.enum(['production', 'studio']).default('production'),
+        style_id: z.string().regex(UUID).nullable().optional().describe('The creator style to build in (list_styles). Leave out to use the default style; null for none.'),
+        request_id: requestId,
+      }),
       annotations: write,
-    }, guarded('create_project', async ({ name, track }) => {
-      const { data, error } = await db.from('projects').insert({ user_id: user, name, track }).select('id,name,track,updated_at').single();
+    }, guarded('create_project', async ({ name, track, style_id }) => {
+      if (style_id === undefined) style_id = (await db.from('creator_styles').select('id').eq('user_id', user).eq('is_default', true).maybeSingle()).data?.id ?? null;
+      else if (style_id && !(await db.from('creator_styles').select('id').eq('id', style_id).eq('user_id', user).maybeSingle()).data) return refuse('No style with that id. Call list_styles.');
+      const { data, error } = await db.from('projects').insert({ user_id: user, name, track, style_id }).select('id,name,track,style_id,updated_at').single();
       if (error) throw error;
       return ok({ project: data });
     }));
 
     server.registerTool('get_project', {
       title: 'Get a project',
-      description: 'Everything about one project in one call: its track, script (with its hash for save_script), Studio direction and beat plan, latest breakdown summary, Studio composition state, references, recent blockouts, and whether the creator\'s Blender helper is online.',
+      description: 'Everything about one project in one call: its track, script (with its hash for save_script), Studio direction and beat plan, the creator style it uses (read it with get_style), latest breakdown summary, Studio composition state, references, recent blockouts, and whether the creator\'s Blender helper is online.',
       inputSchema: z.object({ project_id: projectId }),
       annotations: read,
     }, guarded('get_project', async ({ project_id }) => {
       const [{ data: project }, breakdown, html, references, { data: blockouts }, { data: devices }, media, words, { data: transcription }] = await Promise.all([
-        db.from('projects').select('id,name,track,script,direction,beat_plan,updated_at').eq('id', project_id).single(),
+        db.from('projects').select('id,name,track,script,direction,beat_plan,style_id,updated_at').eq('id', project_id).single(),
         latestBreakdown(db, user, project_id),
         ensureProject(user, project_id).then(readComposition),
         listReferences(user, project_id),
@@ -189,8 +199,11 @@ export function createMcp(db: SupabaseClient) {
         readTranscript(user, project_id),
         db.from('video_jobs').select('id,status,error,input').eq('project_id', project_id).eq('user_id', user).eq('kind', 'transcribe').order('created_at', { ascending: false }).limit(1).maybeSingle(),
       ]);
+      const style = project?.style_id ? (await db.from('creator_styles').select('id,name').eq('id', project.style_id).eq('user_id', user).maybeSingle()).data : null;
       return ok({
         project: { ...project, script_hash: sha256(project?.script ?? '') },
+        // The creator style to build in (get_style); the project's direction and references outrank it.
+        style,
         // Studio track: the recording, music and effects in media/, and the transcript's size.
         ...project?.track === 'studio' && {
           media, transcript: words && { words: words.length, seconds: words.at(-1)?.end ?? 0 },
@@ -280,6 +293,7 @@ export function createMcp(db: SupabaseClient) {
       annotations: read,
     }, guarded('get_composition', async ({ project_id }) => {
       const dir = await ensureProject(user, project_id);
+      await syncStyle(db, user, project_id, dir);
       const html = await readComposition(dir);
       const files = (await readdir(dir, { recursive: true })).map(String).filter(f => !f.startsWith('.') && f !== 'index.html');
       return ok({ hash: sha256(html), blank: isBlank(html), files, html });
@@ -294,6 +308,7 @@ export function createMcp(db: SupabaseClient) {
       const dir = await ensureProject(user, project_id);
       const current = sha256(await readComposition(dir));
       if (expected_hash !== current) return refuse(`The composition changed since you read it (hash is now ${current}). Call get_composition and apply your change to the current file.`);
+      await syncStyle(db, user, project_id, dir);
       const report = await check(dir, html);
       if (report.errors.length) {
         // Block only on errors this edit introduced; ones already in the file (e.g. from Studio edits) are reported, not blocking.
@@ -540,6 +555,7 @@ The first run downloads whisper.cpp and the speech model (~1.6 GB) into a cache,
       annotations: read,
     }, guarded('snapshot', async ({ project_id, at }) => {
       const dir = await ensureProject(user, project_id);
+      await syncStyle(db, user, project_id, dir);
       if (isBlank(await readComposition(dir))) return refuse('The composition is blank. Save one with save_composition first.');
       const shots = join(dir, 'snapshots');
       await rm(shots, { recursive: true, force: true });
@@ -560,6 +576,95 @@ The first run downloads whisper.cpp and the speech model (~1.6 GB) into a cache,
       await touchProject(db, project_id);
       // No structuredContent: clients that prefer it would drop the images.
       return { content: [{ type: 'text', text: `${content.length / 2} frames. Critique each against the brief, fix, save, and look again.` }, ...content] } as Result;
+    }));
+
+    // Creator styles: the look a creator's videos are built in (the creator-profile skill's files). Postgres, owner-checked here
+    // because db is the service role.
+    const ownStyle = async (style_id: string) => {
+      const { data } = await db.from('creator_styles').select('id,name,is_default,updated_at').eq('id', style_id).eq('user_id', user).maybeSingle();
+      return data as { id: string; name: string; is_default: boolean; updated_at: string } | null;
+    };
+    const styleId = z.string().regex(UUID).describe('Style id from list_styles or get_project.');
+    const stylePath = z.string().regex(STYLE_PATH).describe('DESIGN.md, voice.md, analysis.md, style.json, tokens.css, notes.md, or cards/<tier>/<name>.html');
+
+    server.registerTool('list_styles', {
+      title: 'List creator styles',
+      description: 'The creator\'s saved editing styles (look, voice, pacing, card templates). get_project says which one a project uses.',
+      annotations: read,
+    }, guarded('list_styles', async () => {
+      const { data, error } = await db.from('creator_styles').select('id,name,is_default,updated_at').eq('user_id', user).order('updated_at', { ascending: false });
+      if (error) throw error;
+      return ok({ styles: data });
+    }));
+
+    server.registerTool('get_style', {
+      title: 'Read a creator style',
+      description: 'A creator style\'s files, each with its hash for save_style_file. Without path: DESIGN.md, style.json, tokens.css, voice.md and notes.md (the creator\'s own rules, which outrank the rest), plus a list of every file and the style cards (where to mount each and its slots). With path: that one file (analysis.md, a card template).',
+      inputSchema: z.object({ style_id: styleId, path: stylePath.optional() }),
+      annotations: read,
+    }, guarded('get_style', async ({ style_id, path }) => {
+      const style = await ownStyle(style_id);
+      if (!style) return refuse('No style with that id. Call list_styles.');
+      const { data, error } = await db.from('creator_style_files').select('path,text,updated_at').eq('style_id', style_id).eq('user_id', user);
+      if (error) throw error;
+      const files = (data ?? []) as { path: string; text: string }[];
+      if (path) {
+        const file = files.find(f => f.path === path);
+        return file ? ok({ style: style.name, path, hash: sha256(file.text), text: file.text }) : refuse(`This style has no ${path}. Files: ${files.map(f => f.path).join(', ') || 'none'}.`);
+      }
+      return ok({
+        style, index: files.map(f => ({ path: f.path, bytes: Buffer.byteLength(f.text) })),
+        // Mount these in a project that uses this style (get_composition copies them into its style/ folder).
+        cards: files.filter(f => f.path.startsWith('cards/')).map(f => ({ mount: `style/${f.path}`, slots: cardSlots(f.text).map(s => s.id) })),
+        files: files.filter(f => CORE_STYLE_FILES.includes(f.path)).map(f => ({ path: f.path, hash: sha256(f.text), text: f.text })),
+      });
+    }));
+
+    server.registerTool('create_style', {
+      title: 'Create a creator style',
+      description: 'Save a new creator style from its files, e.g. the folder the creator-profile skill wrote (DESIGN.md, voice.md, analysis.md, style.json, tokens.css, cards/<tier>/*.html). Reference videos stay on the creator\'s computer.',
+      inputSchema: z.object({
+        name: z.string().trim().min(1).max(80),
+        files: z.array(z.object({ path: stylePath, text: z.string().max(262144) })).min(1).max(60),
+        make_default: z.boolean().default(false).describe('Use it for new projects unless they pick another.'),
+        request_id: requestId,
+      }),
+      annotations: write,
+    }, guarded('create_style', async ({ name, files, make_default }) => {
+      if (new Set(files.map(f => f.path)).size !== files.length) return refuse('Each path may appear once.');
+      if (files.some(f => Buffer.byteLength(f.text) > 262144)) return refuse('Each file must be at most 256 KB.');
+      if (make_default) await db.from('creator_styles').update({ is_default: false }).eq('user_id', user).eq('is_default', true);
+      const { data: style, error } = await db.from('creator_styles').insert({ user_id: user, name, is_default: make_default }).select('id,name,is_default').single();
+      if (error) throw error;
+      const { error: filesError } = await db.from('creator_style_files').insert(files.map(f => ({ style_id: style.id, user_id: user, path: f.path, text: f.text })));
+      if (filesError) { await db.from('creator_styles').delete().eq('id', style.id); throw filesError; }
+      return ok({ style, files: files.length }, 'Saved; the creator can read and edit it on the site under Style.');
+    }));
+
+    server.registerTool('save_style_file', {
+      title: 'Save a style file',
+      description: 'Replace or add one file of a creator style. Only for changes the creator accepted in this conversation: propose the exact edit first and wait for a yes. Lasting preferences from feedback go in notes.md. expected_hash is the file\'s hash from get_style (use "" for a new file), so the creator\'s own edits are never overwritten.',
+      inputSchema: z.object({ style_id: styleId, path: stylePath, text: z.string().max(262144), expected_hash: z.string(), request_id: requestId }),
+      annotations: { ...write, idempotentHint: true },
+    }, guarded('save_style_file', async ({ style_id, path, text, expected_hash }) => {
+      if (!await ownStyle(style_id)) return refuse('No style with that id. Call list_styles.');
+      if (Buffer.byteLength(text) > 262144) return refuse('The file must be at most 256 KB.');
+      const { data: current } = await db.from('creator_style_files').select('text,updated_at').eq('style_id', style_id).eq('user_id', user).eq('path', path).maybeSingle();
+      const stale = refuse(`${path} changed since you read it. Call get_style and apply the accepted edit to the current file.`);
+      const now = new Date().toISOString();
+      if (current) {
+        if (expected_hash !== sha256(current.text)) return stale;
+        const { data, error } = await db.from('creator_style_files').update({ text, updated_at: now })
+          .eq('style_id', style_id).eq('user_id', user).eq('path', path).eq('updated_at', current.updated_at).select('path');
+        if (error) throw error;
+        if (!data?.length) return stale;
+      } else {
+        if (expected_hash !== '') return stale;
+        const { error } = await db.from('creator_style_files').insert({ style_id, user_id: user, path, text, updated_at: now });
+        if (error) return stale;
+      }
+      await db.from('creator_styles').update({ updated_at: now }).eq('id', style_id).eq('user_id', user);
+      return ok({ saved: true, path, hash: sha256(text) }, 'Saved; the creator sees it on the site under Style.');
     }));
 
     return server;

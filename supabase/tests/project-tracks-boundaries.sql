@@ -4,8 +4,8 @@ begin
   if has_column_privilege('authenticated','public.projects','track','UPDATE') then
     raise exception 'Creators can change a project''s track';
   end if;
-  if has_column_privilege('authenticated','public.projects','beat_plan','UPDATE') then
-    raise exception 'Creators can write the beat plan directly';
+  if not has_column_privilege('authenticated','public.projects','beat_plan','UPDATE') then
+    raise exception 'Creators cannot edit their beat plan';
   end if;
   if not has_column_privilege('authenticated','public.projects','direction','UPDATE') then
     raise exception 'Creators cannot save their direction';
