@@ -9,7 +9,7 @@ the only author. The creator judges the result against motion graphics they admi
 ## The order of work
 
 Do every step yourself, in order. The creator should only have to write the direction, attach references,
-approve the plan and watch the result.
+approve the plan, leave notes on the beat board and watch the result.
 
 **Two layers decide the look.** The **creator style** (`get_project` gives `style`; read it with `get_style`) is
 how this creator's videos always look and sound: palette, type, motion, pacing, card templates, voice. The
@@ -59,8 +59,17 @@ decide.
    before they approve. Whenever a later change departs from the approved plan (a new length, a different
    layout, a beat moved), `save_plan` again with the plan as it now is, so the Direct step and `BRIEF.md` stay
    true.
-6. **Build** one composition (`get_composition`, then `save_composition` with its hash).
-7. **Review it yourself, then fix it, until it passes.** Don't hand over after the first save that works. Pick
+6. **Beat board: show the shots before the full build.** Once the plan is approved, save the composition with
+   the static layout of every beat (footage, webcam, hero words, cards, captions placed; no motion pass yet)
+   and call `snapshot_board` with one moment per beat of the plan, each named as the plan names it. The frames
+   land on the creator's Build step, where they leave a note on any frame they want changed. Check the frames
+   yourself first (the review list in step 8) and fix what fails before you hand them over. Then **stop**: tell
+   the creator the board is in Playground > Build and to tell you when their notes are in. When they do, call
+   `get_board`, apply every note (`save_plan` again if a note changes the plan), and make a new board if the
+   changes are big; a board with no notes, or "go ahead", means build. The creator can skip the board by
+   saying so.
+7. **Build** one composition (`get_composition`, then `save_composition` with its hash).
+8. **Review it yourself, then fix it, until it passes.** Don't hand over after the first save that works. Pick
    the review moments once (every section change, the biggest hit, a caption mid-word, the last frame; up to 8)
    and `snapshot` the same moments every round, so rounds compare. Call `list_references` again and put each
    frame next to them. Score every item below **pass / fail, with the evidence** (what you see at which second,
@@ -81,8 +90,8 @@ decide.
    passes or after four rounds. Then tell the creator, in a short table, each item, its result, and what you
    changed per round, plus anything still failing and why (e.g. "the b-roll is 480p, only a sharper source
    fixes it").
-8. Tell the creator it is in Playground > Video edit, where they can scrub, tweak and render.
-9. **What to remember.** If the project has a style and the creator gave feedback along the way (in the
+9. Tell the creator it is in Playground > Video edit, where they can scrub, tweak and render.
+10. **What to remember.** If the project has a style and the creator gave feedback along the way (in the
    approval, in later change requests, in what they asked you to fix), turn the lasting part into at most five
    specific proposals for the style, each quoting what they said: e.g. "notes.md: add *Captions at least 64px;
    bottom-centre pill.*" or "DESIGN.md › Colors: background is cream paper `#efe6d2`, not near-black". One-off

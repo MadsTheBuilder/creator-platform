@@ -1,6 +1,6 @@
 # Creator Platform plugin (Claude Code and Codex)
 
-Connects your own Claude or Codex to your Content Engine projects through the platform's MCP server (https://worker-production-b2a3.up.railway.app/mcp). It writes scripts, shot breakdowns, the HyperFrames edit, Blender blockouts and Studio-track motion graphics straight into your Playground, which updates live.
+Connects your own Claude or Codex to your Content Engine projects through the platform's MCP server (https://worker-production-b2a3.up.railway.app/mcp). It writes scripts, shot breakdowns, the HyperFrames edit, Blender blockouts, AI video prompts and takes, and Studio-track motion graphics straight into your Playground, which updates live.
 
 The skills here are short on purpose: the real playbooks come from the server (`get_guide`), so they change with the site and this plugin rarely needs updating.
 
@@ -32,4 +32,5 @@ The first tool call opens a browser to sign in with the Google account you use f
 | `shot-breakdown` | Interviews you about the vision, then writes and saves the shot breakdown |
 | `composition` | Edits the HyperFrames animatic / edit in the Studio |
 | `blockout` | Runs a Blender blockout on your PC, looks at the stills, refines the breakdown |
+| `ai-video` | Writes timed AI video prompts from the blockout (checked before saving) and generates takes with your own Higgsfield account |
 | `studio-video` | Studio track: plans beats from your recording's transcript, builds the motion-graphics video, checks its own frames |

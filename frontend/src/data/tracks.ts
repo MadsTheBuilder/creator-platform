@@ -1,7 +1,7 @@
 // The Playground's two tracks (projects.track), each with its own steps. A project picks one when it is
 // created and keeps it. Both end in the same HyperFrames editor.
 export type Track = 'production' | 'studio';
-export type Step = 'script' | 'shots' | 'storyboard' | '3d' | 'direct' | 'build' | 'edit';
+export type Step = 'script' | 'shots' | 'storyboard' | '3d' | 'ai' | 'direct' | 'build' | 'edit';
 export type StepInfo = { step: Step; label: string; blurb: string };
 
 const EDIT: StepInfo = { step: 'edit', label: 'Video edit', blurb: 'The full HyperFrames editor: timeline, keyframes, audio, blocks and render.' };
@@ -14,6 +14,7 @@ export const TRACKS: Record<Track, { label: string; blurb: string; steps: StepIn
       { step: 'shots', label: 'Shot breakdown', blurb: 'Every shot with framing, lens, camera, light and timing.' },
       { step: 'storyboard', label: 'Storyboard', blurb: '2D storyboards of the shot breakdown, made with HyperFrames.' },
       { step: '3d', label: '3D visual', blurb: 'Reference images and videos per shot, and Blender blockouts built on your PC.' },
+      { step: 'ai', label: 'AI video', blurb: 'Timed prompts written from your blockout, and takes generated with your own Higgsfield account.' },
       EDIT,
     ],
   },

@@ -1,8 +1,8 @@
 // Project storage shared by the site's routes (server.ts) and the MCP tools (mcp.ts), so the two can't drift.
 import { createHash } from 'node:crypto';
-import { createWriteStream, existsSync } from 'node:fs';
+import { createReadStream, createWriteStream, existsSync } from 'node:fs';
 import { copyFile, mkdir, readdir, readFile, rename, rm, stat, statfs, writeFile } from 'node:fs/promises';
-import { dirname, join, resolve } from 'node:path';
+import { dirname, extname, join, resolve } from 'node:path';
 import { Readable, Transform } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import { fileURLToPath } from 'node:url';
@@ -18,6 +18,8 @@ export const REFERENCE = /\.(jpe?g|png|webp|gif|mp4|mov|webm)$/i;
 export const BLOCKOUT_FILE = /\.(mp4|png|blend|json)$/i;
 // Studio track recordings, voiceovers, music and sound effects, in <project>/media/.
 export const MEDIA = /\.(mp4|mov|webm|m4a|mp3|wav|aac|ogg)$/i;
+// AI video takes (Production), generated from the project's prompts, in <project>/takes/.
+export const TAKE = /\.(mp4|mov|webm)$/i;
 export const MB = 1024 * 1024;
 const BLANK_MARK = '<!-- playground:blank -->';
 const BLANK = `<!doctype html>${BLANK_MARK}
@@ -99,6 +101,34 @@ export async function listMedia(user: string, id: string) {
   const names = (await readdir(dir).catch(() => [] as string[])).filter(n => MEDIA.test(n));
   return Promise.all(names.map(async name => ({ name, bytes: (await stat(join(dir, name))).size })));
 }
+// Generated AI video takes, newest first (the editor sees them too).
+export function takePath(user: string, id: string, name: string) {
+  return SAFE_NAME.test(name) && TAKE.test(name) ? join(projectDir(user, id), 'takes', name) : null;
+}
+export async function listTakes(user: string, id: string) {
+  const dir = join(projectDir(user, id), 'takes');
+  const names = (await readdir(dir).catch(() => [] as string[])).filter(n => TAKE.test(n) && !n.startsWith('.'));
+  const takes = await Promise.all(names.map(async name => { const info = await stat(join(dir, name)); return { name, bytes: info.size, at: info.mtimeMs }; }));
+  return takes.sort((a, b) => b.at - a.at).map(({ name, bytes }) => ({ name, bytes }));
+}
+// The AI video prompts the creator's Claude saved (save_prompts), or null.
+export const readPrompts = (user: string, id: string) => readFile(join(projectDir(user, id), 'ai-video', 'prompts.md'), 'utf8').catch(() => null);
+// The blockout video those prompts follow (save_prompts records it): what each take is compared against.
+export const readPromptBlockout = (user: string, id: string) => readFile(join(projectDir(user, id), 'ai-video', 'source.json'), 'utf8')
+  .then(text => (JSON.parse(text).blockout as string | undefined) ?? null).catch(() => null);
+
+// Studio track: the beat board, one key frame per beat of the approved plan, which the creator annotates on the
+// Build step before the full build (snapshot_board writes it, get_board reads the notes back).
+export type Board = { round: number; made_at: string; frames: { beat: string; at: number; file: string; note?: string }[]; note?: string; notes_at?: string };
+export const readBoard = (user: string, id: string): Promise<Board | null> =>
+  readFile(join(projectDir(user, id), 'board', 'board.json'), 'utf8').then(JSON.parse).catch(() => null);
+export async function writeBoard(user: string, id: string, board: Board) {
+  const file = join(projectDir(user, id), 'board', 'board.json');
+  await mkdir(dirname(file), { recursive: true });
+  await writeFile(`${file}.part`, JSON.stringify(board, null, 1));
+  await rename(`${file}.part`, file);
+}
+
 // The Studio track's word timings, written by `hyperframes transcribe` (null until a recording is transcribed).
 export type Word = { text: string; start: number; end: number };
 export async function readTranscript(user: string, id: string): Promise<Word[] | null> {
@@ -113,17 +143,38 @@ export async function hasRoom(bytes: number) {
   return fs.bavail * fs.bsize - bytes > 500 * MB;
 }
 
-// Stream a request body to disk (never whole in memory), capped at `limit` bytes.
-export async function saveBody(req: Request, path: string, limit: number) {
+// Stream a request body (or any stream) to disk (never whole in memory), capped at `limit` bytes.
+export async function saveBody(req: Request | Readable, path: string, limit: number) {
   const tooBig = () => new UploadError(`Files up to ${limit / MB} MB fit.`);
-  if (!req.body) throw new UploadError('The upload was empty.');
-  if (Number(req.headers.get('content-length')) > limit) throw tooBig();
+  let body: Readable;
+  if (req instanceof Readable) body = req;
+  else {
+    if (!req.body) throw new UploadError('The upload was empty.');
+    if (Number(req.headers.get('content-length')) > limit) throw tooBig();
+    body = Readable.fromWeb(req.body as never);
+  }
   let size = 0;
   const cap = new Transform({ transform(chunk, _enc, done) { size += chunk.length; done(size > limit ? tooBig() : null, chunk); } });
   await mkdir(dirname(path), { recursive: true });
   const part = `${path}.part`;
-  try { await pipeline(Readable.fromWeb(req.body as never), cap, createWriteStream(part)); await rename(part, path); }
+  try { await pipeline(body, cap, createWriteStream(part)); await rename(part, path); }
   catch (e) { await rm(part, { force: true }); throw e; }
+}
+
+const MIME: Record<string, string> = { '.mp4': 'video/mp4', '.mov': 'video/quicktime', '.webm': 'video/webm', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp', '.gif': 'image/gif', '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.css': 'text/css', '.svg': 'image/svg+xml', '.json': 'application/json', '.map': 'application/json', '.woff': 'font/woff', '.woff2': 'font/woff2', '.png': 'image/png', '.ico': 'image/x-icon' };
+export const mimeOf = (path: string) => MIME[extname(path).toLowerCase()] ?? 'application/octet-stream';
+
+// A file from disk with byte ranges, so videos can seek.
+export async function sendFile(path: string, range: string | undefined) {
+  const info = await stat(path).catch(() => null);
+  if (!info?.isFile()) return null;
+  const headers: Record<string, string> = { 'Content-Type': mimeOf(path), 'Accept-Ranges': 'bytes', 'Cache-Control': 'private, no-cache' };
+  const m = range?.match(/^bytes=(\d*)-(\d*)$/);
+  if (!m || !(m[1] || m[2])) return new Response(Readable.toWeb(createReadStream(path)) as ReadableStream, { headers: { ...headers, 'Content-Length': String(info.size) } });
+  const start = m[1] ? Number(m[1]) : Math.max(info.size - Number(m[2]), 0);
+  const end = m[1] && m[2] ? Math.min(Number(m[2]), info.size - 1) : info.size - 1;
+  if (start > end) return new Response(null, { status: 416, headers: { 'Content-Range': `bytes */${info.size}` } });
+  return new Response(Readable.toWeb(createReadStream(path, { start, end })) as ReadableStream, { status: 206, headers: { ...headers, 'Content-Length': String(end - start + 1), 'Content-Range': `bytes ${start}-${end}/${info.size}` } });
 }
 
 // Tell the open Playground that something in the project folder changed (it listens on projects via Realtime).

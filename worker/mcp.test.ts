@@ -79,7 +79,8 @@ for (const mode of ['modern', 'legacy'] as const) {
     const { tools } = await client.listTools();
     assert.deepEqual(tools.map(t => t.name), ['get_guide', 'list_projects', 'create_project', 'get_project', 'save_script', 'get_breakdown', 'save_breakdown',
       'seed_composition', 'get_composition', 'save_composition', 'list_references', 'create_upload_url', 'queue_blockout', 'get_job', 'get_blockout',
-      'get_transcript', 'transcribe_recording', 'fix_transcript', 'save_plan', 'analyze_beats', 'snapshot',
+      'analyze_video', 'save_prompts', 'prepare_generation', 'import_take',
+      'get_transcript', 'transcribe_recording', 'fix_transcript', 'save_plan', 'analyze_beats', 'snapshot', 'snapshot_board', 'get_board',
       'list_styles', 'get_style', 'create_style', 'save_style_file']);
     assert.ok(tools.every(t => t.description && t.annotations));
     await client.close();
@@ -153,11 +154,85 @@ test('saves refuse stale versions', async () => {
 
 test('guides come from the server', async () => {
   const client = await connect('modern');
-  for (const topic of ['breakdown', 'script', 'composition', 'blockout', 'studio']) {
+  for (const topic of ['breakdown', 'script', 'composition', 'blockout', 'studio', 'ai-video']) {
     const guide = await call(client, 'get_guide', { topic });
     assert.ok(guide.structuredContent.guide.length > 500, topic); // Claude Code reads structuredContent only
   }
   await client.close();
+});
+
+test('ai video: the blockout is read, prompts are checked before saving, a generation is prepared without spending', { timeout: 120_000 }, async () => {
+  const client = await connect('modern');
+  const { structuredContent: { project } } = await call(client, 'create_project', { name: 'AI film' });
+  const dir = projectDir(ME, project.id), job = crypto.randomUUID();
+  await mkdir(join(dir, 'blockout', job), { recursive: true });
+  await mkdir(join(dir, 'references', 'shot-1'), { recursive: true });
+  await writeFile(join(dir, 'references', 'shot-1', 'boy.png'), 'png');
+  // A 4 s "blockout" with one hard cut at 2 s.
+  execFileSync('ffmpeg', ['-v', 'error', '-f', 'lavfi', '-i', 'color=red:s=320x180:d=2', '-f', 'lavfi', '-i', 'color=blue:s=320x180:d=2',
+    '-filter_complex', 'concat=n=2:v=1', '-pix_fmt', 'yuv420p', join(dir, 'blockout', job, 'preview.mp4')]);
+  const cuts = await call(client, 'analyze_video', { project_id: project.id, path: `blockout/${job}/preview.mp4` });
+  assert.equal(cuts.isError, undefined, cuts.content[0].text);
+  const { shots } = JSON.parse(cuts.content[0].text.split('\n').at(-1));
+  assert.deepEqual(shots.map((s: Row) => s.start), [0, 2]);
+  assert.equal(cuts.content.filter((c: Row) => c.type === 'image').length, 1);
+  assert.equal((await call(client, 'analyze_video', { project_id: project.id, path: '../../etc/passwd.mp4' })).isError, true);
+
+  const block = (body: string) => `Director's calls: none.\n\n## The whole film\n\`\`\`\n${body}\n\`\`\`\n`;
+  const good = `[GOAL]
+A boy follows a red balloon through the mela. The idea: wanting is how you get lost.
+Duration: 4 seconds.
+[REFERENCES]
+@Image1 (references/shot-1/boy.png) - The boy: eight, blue jacket. Take him only. Do not take the background.
+[FIRST FRAME AND BLOCKING] The boy centre frame.
+[CONTINUITY] Exactly one boy.
+[STAGES]
+STAGE 1 - 0 to 2s - Reach - He reaches up. References: @Image1. - NO CUT
+STAGE 2 - 2 to 4s - Call - In his voice, Hindi: {Papa, woh dekho!} - NO CUT
+[CAMERA AND OPTICS] 35mm, 54 degrees. [PHYSICS] The balloon bobs. [LIGHTING] Dusk. [AUDIO] NO BGM. [LOOK] No text.`;
+  const blockout = `blockout/${job}/preview.mp4`;
+  assert.equal((await call(client, 'save_prompts', { project_id: project.id, model: 'seedance-2.5', markdown: block(good), blockout: 'takes/none.mp4' })).isError, true);
+  const bad = await call(client, 'save_prompts', { project_id: project.id, model: 'seedance-2.5', blockout,
+    markdown: block(good.replace('Do not take', 'Skip').replace('0 to 2s', '0 to 1.5s').replace('NO BGM', '(sitar) NO BGM').replace('shot-1/boy', 'shot-1/girl')) });
+  assert.equal(bad.isError, true);
+  const problems = bad.structuredContent.problems['The whole film'].join('\n');
+  for (const want of [/starts at 2s/, /"Do not"/, /reserved characters \( \)/, /not found in the project: references\/shot-1\/girl.png/]) assert.match(problems, want);
+  assert.match(bad.content[0].text, /starts at 2s/); // the reasons are in the text Claude Code shows
+  const saved = await call(client, 'save_prompts', { project_id: project.id, model: 'seedance-2.5', markdown: block(good), blockout });
+  assert.equal(saved.structuredContent.saved, true, saved.content[0].text);
+  const { ai_video } = (await call(client, 'get_project', { project_id: project.id })).structuredContent;
+  assert.match(ai_video.prompts, /Papa, woh dekho/);
+  assert.equal(ai_video.blockout, blockout);
+
+  const missing = await call(client, 'prepare_generation', { project_id: project.id, block: 'Segment 9', model: 'seedance-2.5', route: 'api' });
+  assert.match(missing.content[0].text, /The whole film/);
+  const kling = await call(client, 'prepare_generation', { project_id: project.id, block: 'The whole film', model: 'kling', route: 'mcp' });
+  assert.equal(kling.isError, true);
+  const prepared = await call(client, 'prepare_generation', { project_id: project.id, block: 'The whole film', model: 'seedance-2.5', route: 'api' });
+  const gen = prepared.structuredContent;
+  assert.equal(gen.duration, 4);
+  assert.equal(gen.images[0].tag, '@Image1');
+  assert.match(gen.images[0].url, /^https:\/\/app\.test\/mcp-download\//);
+  assert.ok(!gen.prompt.includes('(references') && !gen.prompt.includes('Duration:'));
+  assert.match(gen.take, /^takes\/the-whole-film-480p-\d+\.mp4$/);
+  assert.match(gen.manifest_url, /mcp-download/);
+  assert.equal(gen.estimate_usd, 0.82); // 4 s at 480p 16:9 (no breakdown, so the default aspect)
+  assert.match(prepared.content[0].text, /HF_KEY/);
+
+  for (const url of ['https://127.0.0.1/take.mp4', 'http://example.com/take.mp4', 'https://[::1]/take.mp4']) {
+    const refused = await call(client, 'import_take', { project_id: project.id, url, name: 'take.mp4' });
+    assert.equal(refused.isError, true, url);
+  }
+  await client.close();
+});
+
+test('ai video: the shot table and the cost estimate', async () => {
+  const { shotsFromCuts, estimateUsd } = await import('./video-prompts.ts');
+  const got = shotsFromCuts([5, 9, 9.1, 29.9], 30);
+  assert.deepEqual(got.map(s => s.start), [0, 5, 9]);
+  assert.equal(got.at(-1)!.end, 30);
+  assert.equal(estimateUsd(5, '480p', '16:9'), 1.03);
+  assert.equal(estimateUsd(30, '720p', '9:16'), 13.87);
 });
 
 test('save_composition runs hyperframes check before writing', { timeout: 240_000 }, async () => {
@@ -236,6 +311,30 @@ test('snapshot returns real frames of the saved composition', { timeout: 240_000
   const frames = await call(client, 'snapshot', { project_id: MINE, at: [0.5, 2] });
   assert.equal(frames.isError, undefined, frames.content[0].text);
   assert.equal(frames.content.filter((c: Row) => c.type === 'image').length, 2);
+  await client.close();
+});
+
+test('the beat board: one labelled frame per beat, and the creator notes come back', { timeout: 240_000 }, async () => {
+  const client = await connect('modern');
+  assert.equal((await call(client, 'get_board', { project_id: MINE })).isError, true);
+  const same = await call(client, 'snapshot_board', { project_id: MINE, beats: [{ at: 1, beat: 'a' }, { at: 1.02, beat: 'b' }] });
+  assert.match(same.content[0].text, /share a moment/);
+  const made = await call(client, 'snapshot_board', { project_id: MINE, beats: [{ at: 3, beat: '2. The ghat' }, { at: 0.5, beat: '1. Balloon' }] });
+  assert.equal(made.isError, undefined, made.content[0].text);
+  assert.equal(made.content.filter((c: Row) => c.type === 'image').length, 2);
+  const board = JSON.parse(await readFile(join(projectDir(ME, MINE), 'board', 'board.json'), 'utf8'));
+  assert.deepEqual(board.frames.map((f: Row) => [f.beat, f.file]), [['1. Balloon', 'beat-01.jpg'], ['2. The ghat', 'beat-02.jpg']]);
+  assert.match((await call(client, 'get_board', { project_id: MINE })).content[0].text, /not saved notes/);
+  // What the Build step's Save does (PUT /api/playground/:id/board/notes).
+  board.frames[1].note = 'Make the ghat wider'; board.note = 'Slower overall'; board.notes_at = new Date().toISOString();
+  await writeFile(join(projectDir(ME, MINE), 'board', 'board.json'), JSON.stringify(board));
+  const notes = await call(client, 'get_board', { project_id: MINE });
+  assert.match(notes.content[0].text, /Overall: Slower overall[\s\S]*2\. The ghat \(3s\): Make the ghat wider/);
+  assert.equal(notes.content.filter((c: Row) => c.type === 'image').length, 1);
+  const project = await call(client, 'get_project', { project_id: MINE });
+  assert.equal(project.structuredContent.board, undefined); // a Production project: the board is Studio-only in get_project
+  const again = await call(client, 'snapshot_board', { project_id: MINE, beats: [{ at: 1, beat: '1. Balloon' }] });
+  assert.match(again.content[0].text, /round 2/);
   await client.close();
 });
 

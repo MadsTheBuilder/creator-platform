@@ -3,9 +3,13 @@
 // and writes (project-files.ts, parseStoryboard), so the Playground shows the results as they land.
 import { execFile } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
-import { readdirSync, readFileSync } from 'node:fs';
+import { lookup, type LookupAddress } from 'node:dns';
+import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { copyFile, mkdir, mkdtemp, readdir, readFile, rename, rm, stat, symlink, writeFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { get as httpsGet } from 'node:https';
+import type { IncomingMessage } from 'node:http';
+import { BlockList, isIP } from 'node:net';
+import { basename, dirname, join, resolve, sep } from 'node:path';
 import { promisify } from 'node:util';
 import type { Context, Hono } from 'hono';
 import type { SupabaseClient } from '@supabase/supabase-js';
@@ -18,12 +22,13 @@ import { parseStoryboard, totalSeconds, type Storyboard } from '../frontend/src/
 import { BREAKDOWN_PROMPTS } from './breakdown.ts';
 import { JobError } from './job-error.ts';
 import {
-  DATA, ensureProject, hasRoom, isBlank, latestBreakdown, listMedia, listReferences, local, MB, mediaPath, owns, projectDir, readComposition,
-  readTranscript, refPath, saveBody, sha256, touchProject, UploadError, UUID, writeComposition,
+  DATA, ensureProject, hasRoom, isBlank, latestBreakdown, listMedia, listReferences, listTakes, local, MB, mediaPath, owns, projectDir, readComposition,
+  readBoard, readPromptBlockout, readPrompts, readTranscript, refPath, saveBody, sendFile, sha256, takePath, touchProject, UploadError, UUID, writeBoard, writeComposition,
 } from './project-files.ts';
 import { BREAKDOWN_SCHEMA } from './schemas.ts';
 import { cardSlots, syncStyle } from './style-files.ts';
 import { probe, ticketFor } from './transcribe.ts';
+import { checkBlock, estimateUsd, MODELS, promptBlocks, referencesOf, sendable, shotsFromCuts } from './video-prompts.ts';
 
 // Changes exactly when the tools or playbooks change, so clients can tell a new surface from a restart.
 export const VERSION = `1.0.0+${sha256(['mcp.ts', 'schemas.ts', 'project-files.ts', '../frontend/src/storyboard/composition.ts', ...readdirSync(local('./prompts')).map(f => `prompts/${f}`)]
@@ -36,13 +41,15 @@ const hyperframes = (args: string[], timeout: number) =>
   run(process.execPath, [HYPERFRAMES, ...args], { timeout, maxBuffer: 16 * MB, env: { ...process.env, HYPERFRAMES_NO_TELEMETRY: '1' } });
 
 const INSTRUCTIONS = `Creator Platform: the creator's video projects, each on one of two tracks. Production (footage that is shot or AI-generated):
-script -> shot breakdown -> storyboard -> Blender blockout -> HyperFrames edit. Studio (motion graphics built in code around the creator's own
-recording, or around music alone): direction + references -> transcript -> sound -> beat plan (approved) -> HyperFrames build -> snapshot critique -> edit;
+script -> shot breakdown -> storyboard -> Blender blockout -> AI video prompts and takes (get_guide("ai-video"); generated only with the creator's
+own Higgsfield account) -> HyperFrames edit. Studio (motion graphics built in code around the creator's own
+recording, or around music alone): direction + references -> transcript -> sound -> beat plan (approved) -> beat board
+(snapshot_board; the creator's notes via get_board) -> HyperFrames build -> snapshot critique -> edit;
 read get_guide("studio") first. A project may use one of the creator's saved styles (get_project says which; read it with get_style). Start with list_projects / get_project (it says the track). Before writing a script, breakdown, composition or blockout, read get_guide for that topic: it is the
 platform's own playbook and changes with the site. Everything you save appears live in the creator's Playground. Saves are validated; when one
 is refused the message says what to fix. Never invent metrics or results for the creator.`;
 
-const TOPICS = ['breakdown', 'script', 'composition', 'blockout', 'studio'] as const;
+const TOPICS = ['breakdown', 'script', 'composition', 'blockout', 'studio', 'ai-video'] as const;
 async function guide(topic: (typeof TOPICS)[number]) {
   const join_ = (parts: string[]) => parts.join('\n\n---\n\n');
   if (topic === 'breakdown') return join_(await Promise.all(['mcp-breakdown.md', ...BREAKDOWN_PROMPTS].map(prompt)));
@@ -50,6 +57,7 @@ async function guide(topic: (typeof TOPICS)[number]) {
 Ask the creator for the idea, platform, target length and tone if they have not said. Write the script, show it to them, and only call
 save_script once they are happy: it replaces the project's script. A breakdown is made from the saved script.`]);
   if (topic === 'blockout') return prompt('blockout.md');
+  if (topic === 'ai-video') return prompt('ai-video.md');
   const docs = await Promise.all(['compositions.md', 'data-attributes.md', 'gsap.md', 'troubleshooting.md'].map(f => readFile(join(HF_DOCS, f), 'utf8').catch(() => '')));
   return join_([...topic === 'studio' ? [await prompt('studio.md')] : [], await prompt('composition.md'), ...docs.filter(Boolean)]);
 }
@@ -68,6 +76,63 @@ function remember(key: string, result: unknown) {
   return result;
 }
 const uploads = new Map<string, { user: string; project: string; path: string; limit: number; until: number }>();
+// Short-lived read links for prepare_generation: a project file (a reference for Higgsfield to pull) or the API kit's manifest.
+// ponytail: in memory like uploads; a restart drops them and prepare_generation is simply called again.
+const downloads = new Map<string, { path?: string; json?: Record<string, unknown>; until: number }>();
+function linkFor(origin: string, item: { path?: string; json?: Record<string, unknown> }, ms: number) {
+  const token = randomBytes(24).toString('base64url');
+  downloads.set(token, { ...item, until: Date.now() + ms });
+  for (const [t, d] of downloads) if (d.until < Date.now()) downloads.delete(t);
+  return `${origin}/mcp-download/${token}`;
+}
+// A project file named by its path inside the project (references/shot-3/a.png), or null if it is outside, hidden or missing.
+function projectFile(user: string, project: string, path: string) {
+  const dir = projectDir(user, project), full = resolve(dir, path);
+  if (!full.startsWith(dir + sep) || /(^|[\/])\./.test(path)) return null;
+  return statSync(full, { throwIfNoEntry: false })?.isFile() ? full : null;
+}
+
+// Reference images over 5 MB go out as a 2048 px JPEG (video models refuse or choke on huge PNGs), cached next to the file.
+async function lightImage(path: string) {
+  if (statSync(path).size <= 5 * MB) return path;
+  const out = join(dirname(path), `.${basename(path)}.send.jpg`);
+  if ((statSync(out, { throwIfNoEntry: false })?.mtimeMs ?? 0) < statSync(path).mtimeMs)
+    await run('ffmpeg', ['-v', 'error', '-y', '-i', path, '-vf', "scale='min(2048,iw)':-2", '-q:v', '2', out], { timeout: 120_000 });
+  return out;
+}
+
+// Fetch a public https link (a generated take on the model's CDN) without letting it reach our own network:
+// every address the name resolves to is checked at connect time, and each redirect goes through the same check.
+const PRIVATE = new BlockList();
+for (const [net, bits] of [['0.0.0.0', 8], ['10.0.0.0', 8], ['100.64.0.0', 10], ['127.0.0.0', 8], ['169.254.0.0', 16], ['172.16.0.0', 12], ['192.168.0.0', 16], ['198.18.0.0', 15], ['224.0.0.0', 3]] as const) PRIVATE.addSubnet(net, bits, 'ipv4');
+for (const [net, bits] of [['::', 127], ['::ffff:0:0', 96], ['64:ff9b::', 96], ['fc00::', 7], ['fe80::', 10], ['ff00::', 8]] as const) PRIVATE.addSubnet(net, bits, 'ipv6');
+const isPrivate = (address: string) => PRIVATE.check(address, isIP(address) === 6 ? 'ipv6' : 'ipv4');
+function publicLookup(host: string, options: { all?: boolean }, done: (err: Error | null, address?: string | LookupAddress[], family?: number) => void) {
+  lookup(host, { ...options, all: true }, (err, list) => {
+    if (err) return done(err);
+    if (!list.length || list.some(a => isPrivate(a.address))) return done(new UploadError('That link does not point to a public address.'));
+    options.all ? done(null, list) : done(null, list[0].address, list[0].family);
+  });
+}
+function getPublic(url: string, hops = 3): Promise<IncomingMessage> {
+  return new Promise((resolve_, reject) => {
+    let u: URL;
+    try { u = new URL(url); } catch { return reject(new UploadError('That is not a link.')); }
+    if (u.protocol !== 'https:') return reject(new UploadError('Only https links can be imported.'));
+    const host = u.hostname.replace(/^\[|\]$/g, '');
+    if (isIP(host) && isPrivate(host)) return reject(new UploadError('That link does not point to a public address.'));
+    const req = httpsGet(u, { lookup: publicLookup as never, timeout: 30_000 }, res => {
+      if (res.statusCode && res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
+        res.resume();
+        return hops ? getPublic(new URL(res.headers.location, u).href, hops - 1).then(resolve_, reject) : reject(new UploadError('The link redirects too many times.'));
+      }
+      if (res.statusCode !== 200) { res.resume(); return reject(new UploadError(`The link answered ${res.statusCode}.`)); }
+      resolve_(res);
+    });
+    req.on('timeout', () => req.destroy(new UploadError('The link stopped responding.')));
+    req.on('error', reject);
+  });
+}
 
 type Result = { content: { type: 'text'; text: string }[]; structuredContent?: Record<string, unknown>; isError?: boolean };
 // Both carry everything: Claude Code reads structuredContent on success but only the text on an error,
@@ -184,11 +249,11 @@ export function createMcp(db: SupabaseClient) {
 
     server.registerTool('get_project', {
       title: 'Get a project',
-      description: 'Everything about one project in one call: its track, script (with its hash for save_script), Studio direction and beat plan, the creator style it uses (read it with get_style), latest breakdown summary, Studio composition state, references, recent blockouts, and whether the creator\'s Blender helper is online.',
+      description: 'Everything about one project in one call: its track, script (with its hash for save_script), Studio direction and beat plan, the creator style it uses (read it with get_style), latest breakdown summary, Studio composition state, references, recent blockouts, the AI video prompts and takes (Production), and whether the creator\'s Blender helper is online.',
       inputSchema: z.object({ project_id: projectId }),
       annotations: read,
     }, guarded('get_project', async ({ project_id }) => {
-      const [{ data: project }, breakdown, html, references, { data: blockouts }, { data: devices }, media, words, { data: transcription }] = await Promise.all([
+      const [{ data: project }, breakdown, html, references, { data: blockouts }, { data: devices }, media, words, { data: transcription }, prompts, takes, promptBlockout, board] = await Promise.all([
         db.from('projects').select('id,name,track,script,direction,beat_plan,style_id,updated_at').eq('id', project_id).single(),
         latestBreakdown(db, user, project_id),
         ensureProject(user, project_id).then(readComposition),
@@ -198,6 +263,10 @@ export function createMcp(db: SupabaseClient) {
         listMedia(user, project_id),
         readTranscript(user, project_id),
         db.from('video_jobs').select('id,status,error,input').eq('project_id', project_id).eq('user_id', user).eq('kind', 'transcribe').order('created_at', { ascending: false }).limit(1).maybeSingle(),
+        readPrompts(user, project_id),
+        listTakes(user, project_id),
+        readPromptBlockout(user, project_id),
+        readBoard(user, project_id),
       ]);
       const style = project?.style_id ? (await db.from('creator_styles').select('id,name').eq('id', project.style_id).eq('user_id', user).maybeSingle()).data : null;
       return ok({
@@ -208,11 +277,15 @@ export function createMcp(db: SupabaseClient) {
         ...project?.track === 'studio' && {
           media, transcript: words && { words: words.length, seconds: words.at(-1)?.end ?? 0 },
           transcription: transcription && { job_id: transcription.id, status: transcription.status, error: transcription.error, language: transcription.input?.language, writing: transcription.input?.writing },
+          // The beat board the creator annotates before the full build (get_board reads the notes).
+          board: board && { round: board.round, frames: board.frames.length, notes: board.frames.filter(f => f.note?.trim()).length + (board.note?.trim() ? 1 : 0), notes_at: board.notes_at ?? null },
         },
         breakdown: breakdown && { id: breakdown.id, source: breakdown.source, created_at: breakdown.created_at, ...summary(breakdown.storyboard) },
         composition: { blank: isBlank(html), hash: sha256(html), bytes: Buffer.byteLength(html) },
         references,
         blockouts: (blockouts ?? []).map(j => ({ job_id: j.id, status: j.status, shots: j.input?.shots, error: j.error, created_at: j.created_at })),
+        // Production track: the saved AI video prompts (save_prompts) and the takes generated from them.
+        ...project?.track === 'production' && { ai_video: { prompts, blockout: promptBlockout, takes } },
         blender_helper_online: Boolean(devices?.length),
       });
     }));
@@ -360,22 +433,22 @@ export function createMcp(db: SupabaseClient) {
 
     server.registerTool('create_upload_url', {
       title: 'Get an upload link',
-      description: 'A single-use link (10 minutes) to upload one file: PUT the file bytes to it, e.g. curl -T file.jpg "<url>". target "reference" (default): an image or video for a shot (JPG, PNG, WebP, GIF, MP4, MOV, WebM up to 1 GB). target "media" (Studio track): a recording, voiceover, music or sound effect into media/ (MP4, MOV, WebM, M4A, MP3, WAV, AAC, OGG up to 1 GB); after uploading a recording, call transcribe_recording, which runs on the creator\'s computer.',
+      description: 'A single-use link (10 minutes) to upload one file: PUT the file bytes to it, e.g. curl -T file.jpg "<url>". target "reference" (default): an image or video for a shot (JPG, PNG, WebP, GIF, MP4, MOV, WebM up to 1 GB). target "media" (Studio track): a recording, voiceover, music or sound effect into media/ (MP4, MOV, WebM, M4A, MP3, WAV, AAC, OGG up to 1 GB); after uploading a recording, call transcribe_recording, which runs on the creator\'s computer. target "take" (Production): a generated AI video into takes/ (MP4, MOV, WebM).',
       inputSchema: z.object({
-        project_id: projectId, target: z.enum(['reference', 'media']).default('reference'),
+        project_id: projectId, target: z.enum(['reference', 'media', 'take']).default('reference'),
         shot: z.int().min(1).max(999).optional().describe('Shot number, for target "reference".'),
         name: z.string().max(120).describe('File name with extension, e.g. hero-angle.jpg or whoosh.wav'),
       }),
       annotations: write,
     }, guarded('create_upload_url', async ({ project_id, target, shot, name }) => {
-      const media = target === 'media';
-      if (!media && !shot) return refuse('Pass the shot number for a reference.');
-      const path = media ? mediaPath(user, project_id, name) : refPath(user, project_id, shot!, name);
-      if (!path) return refuse(`Use a plain file name (letters, digits, spaces, . ( ) -) ending in ${media ? '.mp4, .mov, .webm, .m4a, .mp3, .wav, .aac or .ogg' : '.jpg, .jpeg, .png, .webp, .gif, .mp4, .mov or .webm'}.`);
+      const media = target === 'media', take = target === 'take';
+      if (target === 'reference' && !shot) return refuse('Pass the shot number for a reference.');
+      const path = media ? mediaPath(user, project_id, name) : take ? takePath(user, project_id, name) : refPath(user, project_id, shot!, name);
+      if (!path) return refuse(`Use a plain file name (letters, digits, spaces, . ( ) -) ending in ${media ? '.mp4, .mov, .webm, .m4a, .mp3, .wav, .aac or .ogg' : take ? '.mp4, .mov or .webm' : '.jpg, .jpeg, .png, .webp, .gif, .mp4, .mov or .webm'}.`);
       const token = randomBytes(24).toString('base64url');
       uploads.set(token, { user, project: project_id, path, limit: 1024 * MB, until: Date.now() + 10 * 60_000 });
       const origin = String(authInfo?.extra?.origin ?? '');
-      return ok({ url: `${origin}/mcp-upload/${token}`, method: 'PUT', path: media ? `media/${name}` : `references/shot-${shot}/${name}`, expires_in_seconds: 600 });
+      return ok({ url: `${origin}/mcp-upload/${token}`, method: 'PUT', path: media ? `media/${name}` : take ? `takes/${name}` : `references/shot-${shot}/${name}`, expires_in_seconds: 600 });
     }));
 
     server.registerTool('queue_blockout', {
@@ -431,6 +504,129 @@ export function createMcp(db: SupabaseClient) {
       const data = { job_id: job.id, shots: job.input?.shots, files, preview: files.includes('preview.mp4') ? `/api/playground/${project_id}/file/blockout/${job.id}/preview.mp4` : null };
       // No structuredContent here: clients that prefer it would drop the stills.
       return { content: [{ type: 'text', text: JSON.stringify(data) }, ...content] } as Result;
+    }));
+
+    // ---- Production track, after the 3D visual: AI video prompts, generated with the creator's own Higgsfield account.
+    const promptModel = z.enum(Object.keys(MODELS) as [string, ...string[]]).describe('The video model the prompts are written for.');
+    const imageIn = (project_id: string) => (path: string) => /\.(png|jpe?g|webp|gif)$/i.test(path) && !!projectFile(user, project_id, path);
+    const videoIn = (project_id: string, path: string) => /^(blockout|takes|references)\//.test(path) && /\.(mp4|mov|webm)$/i.test(path) ? projectFile(user, project_id, path) : null;
+    const videoPath = z.string().max(200).describe('blockout/<job_id>/preview.mp4, takes/<name>, or references/shot-N/<video>');
+
+    server.registerTool('analyze_video', {
+      title: 'Read a video\'s cuts',
+      description: 'Cut a blockout preview (blockout/<job_id>/preview.mp4) or a generated take (takes/<name>) into shots by scene detection, and return the shot table plus contact sheets as images (2 frames a second, 15 s per sheet, left to right, top to bottom), so you can read its timing and camera moves. Read get_guide("ai-video") first.',
+      inputSchema: z.object({
+        project_id: projectId,
+        path: videoPath,
+        threshold: z.number().min(0.05).max(0.6).default(0.25).describe('Scene-change threshold: lower finds more cuts.'),
+      }),
+      annotations: read,
+    }, guarded('analyze_video', async ({ project_id, path, threshold }) => {
+      const src = videoIn(project_id, path);
+      if (!src) return refuse(`There is no video at ${path}. Use blockout/<job_id>/preview.mp4 (get_project lists blockouts), takes/<name> or references/shot-N/<name>.`);
+      const seconds = Number((await run('ffprobe', ['-v', 'error', '-show_entries', 'format=duration', '-of', 'csv=p=0', src]).catch(() => ({ stdout: '' }))).stdout);
+      if (!(seconds > 0)) return refuse('That file is not a readable video.');
+      const { stderr } = await run('ffmpeg', ['-hide_banner', '-i', src, '-vf', `select='gt(scene,${threshold})',showinfo`, '-f', 'null', '-'], { timeout: 300_000, maxBuffer: 64 * MB });
+      const shots = shotsFromCuts([...stderr.matchAll(/pts_time:([\d.]+)/g)].map(m => Number(m[1])), seconds);
+      await mkdir(join(DATA, 'tmp'), { recursive: true });
+      const tmp = await mkdtemp(join(DATA, 'tmp', 'cuts-'));
+      const content: ({ type: 'text'; text: string } | { type: 'image'; data: string; mimeType: string })[] = [];
+      try {
+        for (let start = 0; start < seconds && start < 120; start += 15) {
+          const jpg = join(tmp, `${start}.jpg`);
+          await run('ffmpeg', ['-v', 'error', '-y', '-ss', String(start), '-t', '15', '-i', src, '-vf', 'fps=2,scale=320:-2,format=rgb24,tile=6x5:padding=4', '-frames:v', '1', '-q:v', '4', jpg], { timeout: 120_000 });
+          content.push({ type: 'text', text: `Sheet ${start}-${Math.min(start + 15, seconds).toFixed(1)}s (frame k at ${start} + 0.5*(k-1) s):` }, { type: 'image', data: (await readFile(jpg)).toString('base64'), mimeType: 'image/jpeg' });
+        }
+      } finally { await rm(tmp, { recursive: true, force: true }); }
+      const table = shots.map(s => `shot ${s.shot}: ${s.start.toFixed(2)} to ${s.end.toFixed(2)}s (${s.duration.toFixed(2)}s)`).join('\n');
+      // No structuredContent: clients that prefer it would drop the sheets.
+      return { content: [{ type: 'text', text: `${path}: ${seconds.toFixed(2)}s, ${shots.length} shots${seconds > 120 ? ' (sheets cover the first 120 s)' : ''}.\n${table}\n${JSON.stringify({ shots })}` }, ...content] } as Result;
+    }));
+
+    server.registerTool('save_prompts', {
+      title: 'Save the AI video prompts',
+      description: 'Save the project\'s AI video prompts as one markdown document: Director\'s calls and Post lists at the top, then each prompt as a ``` block under a ## heading (## The whole film, ## Segment 1...). Every block holding [GOAL] is checked for the model first: sections in order, the duration limit, contiguous stages with CUT marks, reference images that exist in the project each with a "Do not", Seedance\'s reserved brackets. Problems refuse the save and are returned to fix. It replaces the saved prompts and shows in Playground > AI video, where each take is played against the blockout named here. Read get_guide("ai-video") first.',
+      inputSchema: z.object({ project_id: projectId, model: promptModel, markdown: z.string().min(1).max(200_000), blockout: videoPath.describe('The blockout video these prompts follow (the path you gave analyze_video).'), request_id: requestId }),
+      annotations: { ...write, idempotentHint: true },
+    }, guarded('save_prompts', async ({ project_id, model, markdown, blockout }) => {
+      if (!videoIn(project_id, blockout)) return refuse(`There is no video at ${blockout}. Name the blockout the prompts follow, e.g. blockout/<job_id>/preview.mp4.`);
+      const blocks = promptBlocks(markdown);
+      if (!blocks.length) return refuse('No prompt found: put each prompt in a ``` block containing [GOAL], under a ## heading.');
+      const problems = Object.fromEntries(blocks.map(b => [b.heading, checkBlock(b.body, model, imageIn(project_id))] as const).filter(([, errs]) => errs.length));
+      if (Object.keys(problems).length) return { ...ok({ saved: false, problems }, 'The prompts have problems; nothing was saved. Fix exactly these and save again.'), isError: true };
+      const dir = join(await ensureProject(user, project_id), 'ai-video');
+      await mkdir(dir, { recursive: true });
+      await writeFile(join(dir, 'prompts.md.part'), markdown);
+      await rename(join(dir, 'prompts.md.part'), join(dir, 'prompts.md'));
+      await writeFile(join(dir, 'source.json'), JSON.stringify({ blockout, model }));
+      await touchProject(db, project_id);
+      return ok({ saved: true, model, blocks: blocks.map(b => b.heading) }, 'Saved; the creator sees it in Playground > AI video. Generate only when they ask: prepare_generation.');
+    }));
+
+    server.registerTool('prepare_generation', {
+      title: 'Prepare a generation',
+      description: 'Everything needed to generate one saved prompt block with the creator\'s own Higgsfield account: the exact prompt text to send, the reference images in @Image order with download links, duration, aspect ratio, resolution, an upload link for the take (links last 2 hours), and a cost estimate for Seedance. Nothing is generated or paid by this call. route "mcp": you generate with the creator\'s Higgsfield MCP connector, then import_take. route "api": returns commands that run the platform\'s kit on the creator\'s computer with their own Higgsfield API key (Seedance 2.5 only). Get the creator\'s yes on the cost before generating.',
+      inputSchema: z.object({
+        project_id: projectId,
+        block: z.string().max(200).describe('The ## heading of a saved block, e.g. "The whole film" or "Segment 1".'),
+        model: promptModel,
+        resolution: z.enum(['480p', '720p']).default('480p').describe('Start at 480p; 720p once a take holds.'),
+        route: z.enum(['mcp', 'api']).describe('"mcp": the creator\'s Higgsfield connector is in this chat. "api": the creator has a Higgsfield API key and you have a shell on their computer.'),
+      }),
+      annotations: read,
+    }, guarded('prepare_generation', async ({ project_id, block, model, resolution, route }) => {
+      const markdown = await readPrompts(user, project_id);
+      if (!markdown) return refuse('No prompts saved yet. Write them (get_guide("ai-video")) and save them with save_prompts first.');
+      const blocks = promptBlocks(markdown), found = blocks.find(b => b.heading === block);
+      if (!found) return refuse(`There is no block "${block}". Saved blocks: ${blocks.map(b => b.heading).join(', ')}.`);
+      const errs = checkBlock(found.body, model, imageIn(project_id));
+      if (errs.length) return refuse(`That block does not pass the checks for ${model}:\n- ${errs.join('\n- ')}\nFix it with save_prompts first.`);
+      const spec = MODELS[model];
+      if (route === 'api' && !spec.higgsfield) return refuse(`The API kit generates Seedance 2.5 only. For ${model}, use route "mcp" with the creator's Higgsfield connector, or let the creator paste the prompt from Playground > AI video.`);
+      const origin = String(authInfo?.extra?.origin ?? ''), hours2 = 2 * 60 * 60_000;
+      const aspect = (await latestBreakdown(db, user, project_id))?.storyboard.aspect ?? '16:9';
+      const duration = Number(found.body.match(/^Duration:\s*([\d.]+)/m)![1]);
+      const images = await Promise.all(referencesOf(found.body, model).map(async r => ({
+        ...spec.tags && { tag: `@Image${r.n}` }, file: r.path, url: linkFor(origin, { path: await lightImage(projectFile(user, project_id, r.path)!) }, hours2),
+      })));
+      const take = `${block.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'take'}-${resolution}-${new Date().toISOString().slice(0, 19).replace(/\D/g, '')}.mp4`;
+      const token = randomBytes(24).toString('base64url');
+      uploads.set(token, { user, project: project_id, path: takePath(user, project_id, take)!, limit: 1024 * MB, until: Date.now() + hours2 });
+      const estimate = model.startsWith('seedance') ? estimateUsd(duration, resolution, aspect) : null;
+      const job = {
+        block, model, prompt: sendable(found.body, model), images, duration, aspect_ratio: aspect, resolution,
+        take: `takes/${take}`, upload_url: `${origin}/mcp-upload/${token}`,
+        ...estimate !== null && { estimate_usd: estimate, estimate_note: 'Higgsfield\'s API price for Seedance, from its published formula. Credits on the Higgsfield connector are priced by Higgsfield.' },
+      };
+      if (route === 'mcp') return ok(job, `Check the cost with the creator's Higgsfield connector and get their yes first. Then bring each image in from its url${spec.tags ? ', in this order (position N is @ImageN)' : ''}, generate with the prompt, duration, aspect_ratio and resolution below, and call import_take with the finished video's URL (or PUT the file to upload_url).`);
+      const manifest = linkFor(origin, { json: { ...job, higgsfield_model: spec.higgsfield } }, hours2);
+      return ok({ ...job, manifest_url: manifest }, `With the creator's yes on about $${estimate} (Higgsfield API price), run on their computer, in the background (a take takes minutes). Their own Higgsfield API key must be in the environment as HF_KEY=KEY_ID:KEY_SECRET; never ask them to paste it into this chat.
+  pip install higgsfield-client
+  curl -fsSL -o generate.py "${origin}/kit/generate.py"
+  python generate.py "${manifest}" --budget=${estimate}
+It uploads the references to their Higgsfield account, waits for the video and puts it in the project as takes/${take}. The links work for 2 hours. Then analyze_video on takes/${take} and compare it with the blockout.`);
+    }));
+
+    server.registerTool('import_take', {
+      title: 'Bring a generated take in',
+      description: 'Copy a finished AI video from its https link (e.g. the video URL the creator\'s Higgsfield connector returned) into the project\'s takes/, where Playground > AI video and the editor show it. Then compare it with the blockout: analyze_video on takes/<name>.',
+      inputSchema: z.object({
+        project_id: projectId, url: z.string().max(4000).describe('The video\'s https link.'),
+        name: z.string().max(120).describe('File name for the take, e.g. segment-1-480p.mp4 (prepare_generation suggests one).'),
+        request_id: requestId,
+      }),
+      annotations: { ...write, openWorldHint: true },
+    }, guarded('import_take', async ({ project_id, url, name }) => {
+      const path = takePath(user, project_id, name);
+      if (!path) return refuse('Use a plain file name (letters, digits, spaces, . ( ) -) ending in .mp4, .mov or .webm.');
+      if (existsSync(path)) return refuse(`takes/${name} already exists. Pick another name.`);
+      if (!await hasRoom(1024 * MB)) return refuse('The server is out of space for takes right now. Try again later.');
+      try { await saveBody(await getPublic(url), path, 1024 * MB); }
+      catch (e) { return refuse(e instanceof UploadError ? e.message : 'The video could not be downloaded from that link. Is it still valid?'); }
+      const kind = (await run('ffprobe', ['-v', 'error', '-select_streams', 'v:0', '-show_entries', 'stream=codec_type', '-of', 'csv=p=0', path]).catch(() => ({ stdout: '' }))).stdout.trim();
+      if (kind !== 'video') { await rm(path, { force: true }); return refuse('That link is not a video.'); }
+      await touchProject(db, project_id);
+      return ok({ saved: true, take: `takes/${name}` }, `Saved; it shows in Playground > AI video and the editor's Assets. Compare it with the blockout: analyze_video on takes/${name}.`);
     }));
 
     // ---- Studio track: the recording's words, the beat plan, the music's beats, and eyes on the build.
@@ -578,6 +774,72 @@ The first run downloads whisper.cpp and the speech model (~1.6 GB) into a cache,
       return { content: [{ type: 'text', text: `${content.length / 2} frames. Critique each against the brief, fix, save, and look again.` }, ...content] } as Result;
     }));
 
+    server.registerTool('snapshot_board', {
+      title: 'Make the beat board',
+      description: 'After the creator approves the plan and before the full build: render one key frame per beat of the saved composition (the static layout of every beat is enough) and put them on the Build step as the beat board, each labelled with its beat, where the creator writes a note per frame. Replaces the previous board and its notes (a new round). Returns the frames. Then stop: ask the creator to leave notes on the board, and read them with get_board. Read get_guide("studio") first.',
+      inputSchema: z.object({
+        project_id: projectId,
+        beats: z.array(z.object({
+          at: z.number().min(0).max(1800).describe('Seconds: the moment that shows this beat best.'),
+          beat: z.string().trim().min(1).max(160).describe('The beat as the plan names it, e.g. "3. Dhruv, 8 SAAL".'),
+        })).min(1).max(30),
+      }),
+      annotations: write,
+    }, guarded('snapshot_board', async ({ project_id, beats }) => {
+      const ordered = [...beats].sort((a, b) => a.at - b.at);
+      if (new Set(ordered.map(b => b.at.toFixed(1))).size !== ordered.length) return refuse('Two beats share a moment (to 0.1 s). Give each beat its own time.');
+      const dir = await ensureProject(user, project_id);
+      await syncStyle(db, user, project_id, dir);
+      if (isBlank(await readComposition(dir))) return refuse('The composition is blank. Save the static layout of every beat with save_composition first.');
+      const shots = join(dir, 'snapshots');
+      await rm(shots, { recursive: true, force: true });
+      try { await hyperframes(['snapshot', '--at', ordered.map(b => b.at).join(','), '--no-end', '--describe', 'false', dir], 300_000); }
+      catch (e) { console.error('snapshot_board', e); return refuse('The frames could not be rendered. Run save_composition to see any errors, then try again.'); }
+      const pngs = (await readdir(shots)).filter(f => /^frame-\d+.*\.png$/.test(f)).sort();
+      if (pngs.length !== ordered.length) return refuse(`${pngs.length} of ${ordered.length} frames came back. Check every time is inside the composition.`);
+      // A fresh folder per round, so the site never shows half of an old board.
+      const round = ((await readBoard(user, project_id))?.round ?? 0) + 1;
+      await rm(join(dir, 'board'), { recursive: true, force: true });
+      await mkdir(join(dir, 'board'), { recursive: true });
+      const content: ({ type: 'text'; text: string } | { type: 'image'; data: string; mimeType: string })[] = [];
+      const frames = [];
+      for (const [i, png] of pngs.entries()) {
+        const file = `beat-${String(i + 1).padStart(2, '0')}.jpg`, small = join(dir, 'board', `.${file}`);
+        await run('ffmpeg', ['-v', 'error', '-y', '-i', join(shots, png), '-vf', 'scale=1280:-2', '-q:v', '3', join(dir, 'board', file)]);
+        await run('ffmpeg', ['-v', 'error', '-y', '-i', join(shots, png), '-vf', 'scale=640:-2', '-q:v', '5', small]);
+        frames.push({ beat: ordered[i].beat, at: ordered[i].at, file });
+        content.push({ type: 'text', text: `${ordered[i].beat} (${ordered[i].at}s):` }, { type: 'image', data: (await readFile(small)).toString('base64'), mimeType: 'image/jpeg' });
+        await rm(small, { force: true });
+      }
+      await writeBoard(user, project_id, { round, made_at: new Date().toISOString(), frames });
+      await touchProject(db, project_id);
+      // No structuredContent: clients that prefer it would drop the frames.
+      return { content: [{ type: 'text', text: `Beat board round ${round}: ${frames.length} frames, now on the creator's Build step. Check them yourself first; then stop and ask the creator to leave a note on any frame they want changed (Playground > Build) and to tell you when they're done. Read the notes with get_board, apply them, and only then do the full build.` }, ...content] } as Result;
+    }));
+
+    server.registerTool('get_board', {
+      title: 'Read the beat board notes',
+      description: 'The creator\'s notes on the beat board (one per frame, plus an overall note), with the frames they commented on as images. Apply every note before the full build; if a note changes the plan, save_plan again.',
+      inputSchema: z.object({ project_id: projectId }),
+      annotations: read,
+    }, guarded('get_board', async ({ project_id }) => {
+      const board = await readBoard(user, project_id);
+      if (!board) return refuse('There is no beat board yet. Make one with snapshot_board after the plan is approved.');
+      const noted = board.frames.filter(f => f.note?.trim());
+      const lines = board.frames.map(f => `- ${f.beat} (${f.at}s): ${f.note?.trim() || 'no note'}`).join('\n');
+      const status = !board.notes_at ? 'The creator has not saved notes on this board yet.'
+        : `${noted.length} frame note(s)${board.note?.trim() ? ' and an overall note' : ''}, saved ${board.notes_at}.`;
+      const content: ({ type: 'text'; text: string } | { type: 'image'; data: string; mimeType: string })[] = [
+        { type: 'text', text: `Beat board round ${board.round}. ${status}${board.note?.trim() ? `\nOverall: ${board.note.trim()}` : ''}\n${lines}` }];
+      const dir = projectDir(user, project_id);
+      for (const f of noted.slice(0, 12)) {
+        const bytes = await readFile(join(dir, 'board', f.file)).catch(() => null);
+        if (bytes) content.push({ type: 'text', text: `${f.beat} (${f.at}s), note: ${f.note!.trim()}` }, { type: 'image', data: bytes.toString('base64'), mimeType: 'image/jpeg' });
+      }
+      // No structuredContent: clients that prefer it would drop the frames.
+      return { content } as Result;
+    }));
+
     // Creator styles: the look a creator's videos are built in (the creator-profile skill's files). Postgres, owner-checked here
     // because db is the service role.
     const ownStyle = async (style_id: string) => {
@@ -713,6 +975,14 @@ export function mountMcp(app: Hono<any>, db: SupabaseClient, { supabaseUrl, user
     if (auth instanceof Response) return auth;
     auth.extra = { ...auth.extra, origin };
     return handler.fetch(c.req.raw, { authInfo: auth });
+  });
+
+  // Short-lived read links from prepare_generation: Higgsfield pulls the references, the API kit reads its manifest.
+  app.get('/mcp-download/:token', async c => {
+    const item = downloads.get(c.req.param('token'));
+    if (!item || item.until < Date.now()) return c.json({ error: 'This link has expired. Call prepare_generation again.' }, 404);
+    if (item.json) return c.json(item.json);
+    return await sendFile(item.path!, c.req.header('range')) ?? c.json({ error: 'not found' }, 404);
   });
 
   // Single-use upload links from create_upload_url (the agent PUTs bytes here; nothing large crosses MCP).

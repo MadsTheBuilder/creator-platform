@@ -1,8 +1,7 @@
 import { randomBytes } from 'node:crypto';
-import { createReadStream, existsSync } from 'node:fs';
+import { existsSync } from 'node:fs';
 import { readFile, rm, stat } from 'node:fs/promises';
-import { extname, join, resolve, sep } from 'node:path';
-import { Readable } from 'node:stream';
+import { join, resolve, sep } from 'node:path';
 import AdmZip from 'adm-zip';
 import { serve } from '@hono/node-server';
 import { Hono, type Context } from 'hono';
@@ -14,31 +13,16 @@ import { createStudioServer } from 'hyperframes/dist/studioServer-PXNJXHMV.js';
 import { parseStoryboard } from '../frontend/src/storyboard/composition.ts';
 import { JobError } from './job-error.ts';
 import { mountMcp } from './mcp.ts';
-import { BLOCKOUT_FILE, DATA, ensureProject, hasRoom, isBlank, latestBreakdown, listMedia, listReferences, local, MB, mediaPath, owns as ownsProject, projectDir,
-  readComposition, refPath, SAFE_NAME, saveBody, sha256, touchProject, UploadError, writeComposition } from './project-files.ts';
+import { BLOCKOUT_FILE, DATA, ensureProject, hasRoom, isBlank, latestBreakdown, listMedia, listReferences, listTakes, local, MB, mediaPath, mimeOf, owns as ownsProject, projectDir,
+  readBoard, readComposition, readPromptBlockout, readPrompts, refPath, SAFE_NAME, saveBody, sendFile, sha256, touchProject, UploadError, writeBoard, writeComposition } from './project-files.ts';
 import { finish as finishTranscription, probe, settings, speech, tickets, whisperJson } from './transcribe.ts';
 
 const SITE = local('../frontend/dist');
 const STUDIO_UI = local('./node_modules/hyperframes/dist/studio');
 const COOKIE = 'hf_session';
 const BRIDGE_KIT = local('../bridge');
-const MIME: Record<string, string> = { '.mp4': 'video/mp4', '.mov': 'video/quicktime', '.webm': 'video/webm', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp', '.gif': 'image/gif', '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.css': 'text/css', '.svg': 'image/svg+xml', '.json': 'application/json', '.map': 'application/json', '.woff': 'font/woff', '.woff2': 'font/woff2', '.png': 'image/png', '.ico': 'image/x-icon' };
-
 type Env = { Variables: { user: string } };
 type Shot = Record<string, unknown>;
-
-// A file from disk with byte ranges, so videos can seek.
-async function sendFile(path: string, range: string | undefined) {
-  const info = await stat(path).catch(() => null);
-  if (!info?.isFile()) return null;
-  const headers: Record<string, string> = { 'Content-Type': MIME[extname(path).toLowerCase()] ?? 'application/octet-stream', 'Accept-Ranges': 'bytes', 'Cache-Control': 'private, no-cache' };
-  const m = range?.match(/^bytes=(\d*)-(\d*)$/);
-  if (!m || !(m[1] || m[2])) return new Response(Readable.toWeb(createReadStream(path)) as ReadableStream, { headers: { ...headers, 'Content-Length': String(info.size) } });
-  const start = m[1] ? Number(m[1]) : Math.max(info.size - Number(m[2]), 0);
-  const end = m[1] && m[2] ? Math.min(Number(m[2]), info.size - 1) : info.size - 1;
-  if (start > end) return new Response(null, { status: 416, headers: { 'Content-Range': `bytes */${info.size}` } });
-  return new Response(Readable.toWeb(createReadStream(path, { start, end })) as ReadableStream, { status: 206, headers: { ...headers, 'Content-Length': String(end - start + 1), 'Content-Range': `bytes ${start}-${end}/${info.size}` } });
-}
 
 export function startServer(db: SupabaseClient, port: number) {
   // Access token -> creator id, re-checked with Supabase every few minutes.
@@ -88,7 +72,7 @@ export function startServer(db: SupabaseClient, port: number) {
   async function file(root: string, path: string) {
     const full = resolve(root, '.' + decodeURIComponent(path));
     if (full !== root && !full.startsWith(root + sep)) return null;
-    try { return new Response(await readFile(full), { headers: { 'Content-Type': MIME[extname(full)] ?? 'application/octet-stream', 'Cache-Control': path.startsWith('/assets/') ? 'public, max-age=31536000, immutable' : 'no-cache' } }); }
+    try { return new Response(await readFile(full), { headers: { 'Content-Type': mimeOf(full), 'Cache-Control': path.startsWith('/assets/') ? 'public, max-age=31536000, immutable' : 'no-cache' } }); }
     catch { return null; }
   }
 
@@ -177,6 +161,35 @@ export function startServer(db: SupabaseClient, port: number) {
     await db.from('video_jobs').update({ status: 'failed', error: 'Cancelled.', updated_at: new Date().toISOString() })
       .eq('project_id', c.req.param('id')).eq('user_id', c.get('user')).eq('kind', 'transcribe').in('status', ['queued', 'running']).is('output', null);
     return c.json({ ok: true });
+  });
+  // Studio track: the beat board the creator's Claude made (snapshot_board), and the creator's notes on it (get_board).
+  app.get('/api/playground/:id/board', async c => {
+    if (!await owns(c.get('user'), c.req.param('id'))) return c.json({ error: 'not found' }, 404);
+    return c.json(await readBoard(c.get('user'), c.req.param('id')));
+  });
+  app.put('/api/playground/:id/board/notes', async c => {
+    const user = c.get('user'), id = c.req.param('id');
+    if (!await owns(user, id)) return c.json({ error: 'not found' }, 404);
+    const board = await readBoard(user, id);
+    const body = await c.req.json().catch(() => null) as { round?: unknown; notes?: unknown; note?: unknown } | null;
+    if (!board) return c.json({ error: 'There is no beat board yet.' }, 404);
+    if (body?.round !== board.round) return c.json({ error: 'Your Claude made a new board meanwhile. Reload to see it.' }, 409);
+    const notes = Array.isArray(body.notes) ? body.notes : [];
+    if (notes.length !== board.frames.length || notes.some(n => typeof n !== 'string' || n.length > 2000) || (body.note !== undefined && (typeof body.note !== 'string' || body.note.length > 4000)))
+      return c.json({ error: 'Notes are up to 2000 characters each, and the overall note up to 4000.' }, 400);
+    board.frames.forEach((f, i) => { f.note = (notes[i] as string).trim() || undefined; });
+    board.note = (body.note as string | undefined)?.trim() || undefined;
+    board.notes_at = new Date().toISOString();
+    await writeBoard(user, id, board);
+    await touchProject(db, id);
+    return c.json(board);
+  });
+  // Production track: the AI video prompts the creator's Claude saved, and the takes generated from them.
+  app.get('/api/playground/:id/ai-video', async c => {
+    const user = c.get('user'), id = c.req.param('id');
+    if (!await owns(user, id)) return c.json({ error: 'not found' }, 404);
+    const [prompts, blockout, takes] = await Promise.all([readPrompts(user, id), readPromptBlockout(user, id), listTakes(user, id)]);
+    return c.json({ prompts, blockout, takes });
   });
   app.get('/api/playground/:id/file/*', async c => {
     const id = c.req.param('id');
@@ -334,6 +347,8 @@ export function startServer(db: SupabaseClient, port: number) {
 
   // The transcription script, for the creator's Claude Code to fetch (transcribe_recording says how). No secrets in it.
   app.get('/kit/transcribe.py', async c => await file(BRIDGE_KIT, '/transcribe.py') ?? c.notFound());
+  // AI video on the creator's computer with their own Higgsfield API key (prepare_generation says how). No secrets in it.
+  app.get('/kit/generate.py', async c => await file(BRIDGE_KIT, '/generate.py') ?? c.notFound());
 
   // The site, then the Studio UI's own static files (both use /assets with hashed names).
   app.get('*', async c => {
