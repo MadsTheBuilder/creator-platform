@@ -49,10 +49,26 @@ approve the plan and watch the result.
    `BRIEF.md` in the project folder. Then **stop** and ask the creator to approve or change it. Do not build
    before they approve.
 6. **Build** one composition (`get_composition`, then `save_composition` with its hash).
-7. **Look at it.** `snapshot` at the moments that matter (every section change, the biggest hit, a caption
-   mid-word, the last frame). Critique each frame against the brief, the references and the rules below, fix,
-   save, snapshot again. At least two full rounds before you tell the creator it's ready. Say what you changed
-   in each round.
+7. **Review it yourself, then fix it, until it passes.** Don't hand over after the first save that works. Pick
+   the review moments once (every section change, the biggest hit, a caption mid-word, the last frame; up to 8)
+   and `snapshot` the same moments every round, so rounds compare. Call `list_references` again and put each
+   frame next to them. Score every item below **pass / fail, with the evidence** (what you see at which second,
+   or the number you measured):
+   - **Look matches the references:** background tone and texture, palette, accent colour, type style. Name
+     the difference if there is one ("references are cream paper, build is near-black": fail).
+   - **The frame is full:** no large dead area (a quarter of the frame or more with nothing on it) outside a
+     deliberate pause.
+   - **Hero type is big:** at each key word of the plan, one word or phrase at 50–80% of the frame width.
+   - **The direction's rules hold:** check each rule the creator wrote (e.g. the webcam never covers the
+     important part of the footage) at every frame.
+   - **Captions** are readable, centred, on their words, nothing important under them.
+   - **Footage:** no visible repeats of the same span, nothing soft or stretched, no stray artifacts.
+   - **Sound:** with a shell, measure the music you placed (`ffmpeg -i score.mp3 -af ebur128=framelog=quiet -f null -`):
+     music near −14 LUFS before its clip volume, a sound on every hit in the plan, the voice always clear.
+   Fix every fail, save, snapshot the same moments, score again. At least two rounds; stop when everything
+   passes or after four rounds. Then tell the creator, in a short table, each item, its result, and what you
+   changed per round, plus anything still failing and why (e.g. "the b-roll is 480p, only a sharper source
+   fixes it").
 8. Tell the creator it is in Playground > Video edit, where they can scrub, tweak and render.
 
 ## The plan (what save_plan holds)
