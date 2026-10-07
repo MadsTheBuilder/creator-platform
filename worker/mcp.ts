@@ -69,10 +69,11 @@ function remember(key: string, result: unknown) {
 const uploads = new Map<string, { user: string; project: string; path: string; limit: number; until: number }>();
 
 type Result = { content: { type: 'text'; text: string }[]; structuredContent?: Record<string, unknown>; isError?: boolean };
-// Clients that read structuredContent (Claude Code does) never see the text, so a message goes in both.
+// Both carry everything: Claude Code reads structuredContent on success but only the text on an error,
+// so a refusal's reasons (e.g. hyperframes check errors) must be in the text too.
 const ok = (data: Record<string, unknown>, message?: string): Result => {
   const structured = message ? { ...data, message } : data;
-  return { content: [{ type: 'text', text: message ?? JSON.stringify(data, null, 1) }], structuredContent: structured };
+  return { content: [{ type: 'text', text: message ? `${message}\n\n${JSON.stringify(data, null, 1)}` : JSON.stringify(data, null, 1) }], structuredContent: structured };
 };
 const refuse = (text: string): Result => ({ content: [{ type: 'text', text }], isError: true });
 // The same schema the worker's own Claude call is held to (schemas.ts).

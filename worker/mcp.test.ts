@@ -164,6 +164,8 @@ test('save_composition runs hyperframes check before writing', { timeout: 240_00
   const broken = await call(client, 'save_composition', { project_id: MINE, html: '<html><body><div data-composition-id="x">', expected_hash: current.structuredContent.hash });
   assert.equal(broken.isError, true);
   assert.ok(broken.structuredContent.errors.length > 0);
+  // The reasons are in the text too, which is all Claude Code shows the model for an error.
+  assert.ok(broken.content[0].text.includes(broken.structuredContent.errors[0].code));
   const edited = current.structuredContent.html.replace('Red Balloon', 'The Red Balloon');
   const saved = await call(client, 'save_composition', { project_id: MINE, html: edited, expected_hash: current.structuredContent.hash });
   assert.equal(saved.structuredContent.saved, true, saved.content[0].text);
