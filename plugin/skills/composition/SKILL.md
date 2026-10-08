@@ -1,6 +1,6 @@
 ---
 name: composition
-description: Edit a Content Engine project's HyperFrames video (the animatic or edit open in the site's Studio editor): timing, text, layout, animation, references. Use when the creator asks to change, animate, restyle or fix their project's edit or animatic in Content Engine / Creator Platform.
+description: "Edit a Content Engine project's HyperFrames video (the animatic or edit open in the site's Studio editor): timing, text, layout, animation, references. Use when the creator asks to change, animate, restyle or fix their project's edit or animatic in Content Engine / Creator Platform."
 ---
 
 1. `get_guide` with topic `composition` (HyperFrames rules for this project and pinned version).

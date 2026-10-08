@@ -17,8 +17,9 @@ The skills here are short on purpose: the real playbooks come from the server (`
 
 ```
 codex plugin marketplace add https://github.com/MadsTheBuilder/creator-platform
+codex plugin add creator-platform@creator-platform
 ```
-then install **Creator Platform** from `/plugins`.
+or install **Creator Platform** from `/plugins`.
 
 **Claude.ai or Claude Desktop** (no plugin needed): Settings → Connectors → Add custom connector → `https://worker-production-b2a3.up.railway.app/mcp`
 
