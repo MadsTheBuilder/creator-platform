@@ -480,6 +480,11 @@ meter::-moz-meter-bar{border-radius:99px;background:var(--orange)}
 .consent-actions{display:flex;gap:10px;align-self:stretch;justify-content:flex-end;margin-top:6px}
 /* Connections: the creator's AI assistants. */
 .assistant-setup{display:grid;gap:8px;align-self:stretch}
+.new-style-dialog{width:min(560px,calc(100vw - 32px));max-height:calc(100vh - 48px);overflow:auto}
+.new-style-dialog .icon-button{display:grid}
+.new-style-dialog h3{margin:18px 0 4px;font-size:.9375rem}
+.new-style-dialog textarea{padding:8px 12px;border:1px solid var(--rim);border-radius:var(--control);background:var(--glass);color:var(--text);font:inherit;font-size:.875rem;resize:vertical}
+.copy-block{display:block;margin:8px 0;padding:10px 12px;border:1px solid var(--rim);border-radius:var(--control);background:var(--glass);font-family:ui-monospace,Consolas,monospace;font-size:.75rem;white-space:pre-wrap;overflow-wrap:anywhere}
 .assistant-setup code{display:block;overflow-x:auto;padding:10px 12px;border:1px solid var(--rim);border-radius:var(--control);background:rgb(0 0 0 / .25);font-size:.8125rem;white-space:pre}
 .assistant-setup small{color:var(--faint);font-size:.75rem}
 .assistant-grants{display:grid;gap:8px;align-self:stretch;margin:0;padding:0;list-style:none}

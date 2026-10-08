@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState, type ChangeEvent } from 'react';
-import { FolderOpen, Star, Trash } from '@phosphor-icons/react';
+import { FolderOpen, Plus, Star, Trash } from '@phosphor-icons/react';
 import { useSession, useStyleChanges } from '../data/hooks';
 import { byOrder, cardPreview, createStyle, deleteStyle, getStyleFiles, listStyles, readStyleFolder, saveStyleFile, summarise, updateStyle, type Style as StyleRow, type StyleFile } from '../data/styles';
 import { Button, Empty, Notice } from '../components/ui';
+import { NewStyleDialog } from '../components/NewStyleDialog';
 
 // "03-indian-lawtuber" -> "Indian Lawtuber"
 const nameFrom = (folder: string) => folder.replace(/^\d+-/, '').split(/[-_ ]+/).filter(Boolean).map(w => w[0].toUpperCase() + w.slice(1)).join(' ') || 'My style';
@@ -18,6 +19,7 @@ export function Style({ onConnections }: { onConnections: () => void }) {
   const [draft, setDraft] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const [creating, setCreating] = useState(false);
 
   const reload = () => listStyles().then(s => { setStyles(s); setOpen(o => o && s.some(x => x.id === o) ? o : s.find(x => x.is_default)?.id ?? s[0]?.id ?? null); }, e => setError(e.message));
   useEffect(() => { if (session) void reload(); }, [session?.user.id]);
@@ -62,12 +64,16 @@ export function Style({ onConnections }: { onConnections: () => void }) {
     <section className="glass storyboard-form" aria-label="Your styles">
       <div className="section-toolbar">
         <div><h2>Your styles</h2><p className="muted">How your videos look and sound: palette, type, motion, pacing, card templates, voice. Each Studio project picks one; your Claude builds in it and only changes it when you say yes.</p></div>
-        <label className={`button primary ${busy ? 'disabled' : ''}`}><FolderOpen size={16}/>Import a style folder
-          <input className="sr-only" type="file" {...{ webkitdirectory: '' }} multiple disabled={busy} onChange={importFolder}/></label>
+        <div className="toolbar-actions">
+          <Button className="primary" onClick={() => setCreating(true)}><Plus size={16} aria-hidden/>Create a new style</Button>
+          <label className={`button ${busy ? 'disabled' : ''}`}><FolderOpen size={16}/>Import a style folder
+            <input className="sr-only" type="file" {...{ webkitdirectory: '' }} multiple disabled={busy} onChange={importFolder}/></label>
+        </div>
       </div>
       {styles === null ? <p role="status">Loading…</p>
         : !styles.length ? <Empty title="No styles yet" body="Import the folder the creator-profile skill made (DESIGN.md, style.json, tokens.css, voice.md, analysis.md, cards/), or ask your Claude to save one with create_style. Reference videos stay on your computer."/>
         : <div className="platform-tabs" role="group" aria-label="Style">{styles.map(s => <button key={s.id} className={s.id === open ? 'active' : ''} aria-pressed={s.id === open} onClick={() => setOpen(s.id)}>{s.name}{s.is_default && ' ★'}</button>)}</div>}
+      <NewStyleDialog open={creating} onClose={() => setCreating(false)}/>
     </section>
 
     {style && <section className="glass storyboard-form" aria-label={style.name}>

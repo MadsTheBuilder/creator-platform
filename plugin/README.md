@@ -9,14 +9,14 @@ The skills here are short on purpose: the real playbooks come from the server (`
 **Claude Code**
 
 ```
-/plugin marketplace add <path or git URL of this repo>
+/plugin marketplace add MadsTheBuilder/creator-platform
 /plugin install creator-platform@creator-platform
 ```
 
 **Codex**
 
 ```
-codex plugin marketplace add <path or git URL of this repo>
+codex plugin marketplace add https://github.com/MadsTheBuilder/creator-platform
 ```
 then install **Creator Platform** from `/plugins`.
 
@@ -35,3 +35,4 @@ The first tool call opens a browser to sign in with the Google account you use f
 | `storyboard` | Lays the blockout out as a shot-by-shot storyboard and checks each frame against its shot |
 | `ai-video` | Writes timed AI video prompts from the blockout (checked before saving) and generates takes with your own Higgsfield account |
 | `studio-video` | Studio track: plans beats from your recording's transcript, builds the motion-graphics video, checks its own frames |
+| `creator-profile` | Studies a creator's channel and videos on your computer (yt-dlp, ffmpeg, local whisper), writes their style profile, and saves it under Style in Content Engine. Also saves a profile folder you already have |

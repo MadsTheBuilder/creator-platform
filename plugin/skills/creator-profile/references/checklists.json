@@ -1,0 +1,62 @@
+{
+  "$comment": "Single source of truth for the aggregator (what to write) and validate-profile.mjs (what to check). requiredSections are matched case-insensitively as the start of a markdown heading. items are guidance for the aggregator; 'from' names the researcher whose findings file supplies it.",
+  "files": {
+    "analysis.md": {
+      "requiredSections": ["Per-video summary", "Beat tables", "Transferable mechanisms", "What would distract", "Not assessed"],
+      "items": [
+        { "item": "Channel line: name, URL, presenter, subscriber count and analysis date", "from": "channel-scout" },
+        { "item": "Per-video table: id, title, date, length, views, cuts, median shot, mean, cuts in first 60s, shots >10s, look. Pacing columns copied verbatim from research/pacing.json", "from": ["channel-scout", "pacing"] },
+        { "item": "What tracks views: topic type vs pacing vs look, stated as evidence not hunches; never claim a correlation the table does not show", "from": ["channel-scout", "pacing"] },
+        { "item": "Era timeline if the look changed over time (era, videos, presenter, look, median shot)", "from": ["channel-scout", "pacing"] },
+        { "item": "Opening beat tables for at least 3 videos: Time | Spoken idea | Visual change | Sound cue | Viewer question | Payoff", "from": "structure" },
+        { "item": "Body shapes (one per video type) and ending patterns", "from": "structure" },
+        { "item": "Transferable mechanisms: the how, not the content", "from": ["structure", "type-layout", "motion-audio"] },
+        { "item": "What would distract (don't copy), including identity, branding and verbatim lines", "from": "structure" },
+        { "item": "Not assessed: blind spots and sampling limits (frame spacing, transcript quality, audio)", "from": "all" }
+      ]
+    },
+    "DESIGN.md": {
+      "requiredSections": ["Style Prompt", "Colors", "Typography", "Motion", "Card kinds", "What NOT to do"],
+      "items": [
+        { "item": "Style prompt: one paragraph a designer could build from", "from": ["palette", "type-layout", "motion-audio"] },
+        { "item": "Colour roles with hex, each with a meaning; matches tokens.css exactly", "from": "palette" },
+        { "item": "Typography: display/body/serif/mono with the closest Google Font and where each is used; caption rules", "from": "type-layout" },
+        { "item": "Motion: entrances, exits, transitions, easing feel; pacing quoted only from the analysis.md table", "from": ["motion-audio", "pacing"] },
+        { "item": "Card kinds observed, with built vs not yet built", "from": "type-layout" },
+        { "item": "Legacy variants / eras, opt-in per video", "from": ["channel-scout", "palette"] },
+        { "item": "What NOT to do", "from": ["type-layout", "palette", "motion-audio"] }
+      ]
+    },
+    "voice.md": {
+      "requiredSections": ["Who's talking", "Language rules", "Hook formulas", "Body structure", "Endings", "Script template", "Not assessed"],
+      "items": [
+        { "item": "Persona: who speaks, to whom, tone, on/off camera, register", "from": "voice" },
+        { "item": "Language rules: language mix, terms kept in which language, signature connectors (paraphrased patterns), units, sentence length, words per minute", "from": "voice" },
+        { "item": "Hook formulas, one per observed opening, each tagged with its source video", "from": ["voice", "structure"] },
+        { "item": "Body structure per video type", "from": ["voice", "structure"] },
+        { "item": "Endings and calls to action, by era", "from": ["voice", "structure"] },
+        { "item": "On-screen text rules (what gets captioned, emphasis)", "from": ["voice", "type-layout"] },
+        { "item": "Timed script template", "from": "voice" },
+        { "item": "Not assessed: delivery, tone of voice, transcript accuracy", "from": "voice" }
+      ]
+    },
+    "tokens.css": {
+      "requiredTokens": ["--bg", "--fg", "--accent", "--font-display", "--font-body"],
+      "requiredTokenPrefixes": ["--ease"],
+      "items": [
+        { "item": "Base colours sampled from frames, with a comment naming the role", "from": "palette" },
+        { "item": "Optional legacy/era colours, clearly marked opt-in", "from": "palette" },
+        { "item": "Fonts, type scale, easings and durations", "from": ["type-layout", "motion-audio"] }
+      ]
+    },
+    "style.json": {
+      "requiredKeys": ["id", "name", "number", "status", "inspiration", "summary", "palette.bg", "palette.fg", "palette.accent", "fonts.display", "fonts.body", "motion", "transitions", "cards"],
+      "items": [
+        { "item": "Blueprint fields filled; palette hex identical to tokens.css", "from": ["palette", "type-layout"] },
+        { "item": "inspiration + summary mention the creator, video count and date range", "from": "channel-scout" },
+        { "item": "variants array if there are eras", "from": "channel-scout" },
+        { "item": "cards: only cards that exist on disk; leave [] if none built yet", "from": "type-layout" }
+      ]
+    }
+  }
+}
