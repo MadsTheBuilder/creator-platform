@@ -4,12 +4,17 @@ import { supabase } from '../data/supabase';
 import { useSession } from '../data/hooks';
 import { Button, Notice } from './ui';
 
+export const mcpUrl = () => `${window.location.origin}/mcp`;
+export const claudeCodeAdd = (url: string) => `claude mcp add --transport http creator ${url}`;
+export const codexAdd = (url: string) => `codex mcp add creator --url ${url}
+codex mcp login creator`;
+
 // The platform's MCP server (worker/mcp.ts): the creator's own Claude or Codex works on their projects.
 export function AssistantConnection() {
   const session = useSession();
   const [grants, setGrants] = useState<OAuthGrant[] | null>(null);
   const [error, setError] = useState('');
-  const url = `${window.location.origin}/mcp`;
+  const url = mcpUrl();
 
   function load() {
     supabase?.auth.oauth.listGrants().then(({ data, error }) => error ? setGrants([]) : setGrants(data));
@@ -26,8 +31,8 @@ export function AssistantConnection() {
     <h2>Claude & Codex</h2>
     <p>Let your own Claude or Codex write scripts, shot breakdowns and edits straight into your Playground projects. You approve it once with this account; everything it saves shows up here live.</p>
     <div className="assistant-setup">
-      <strong>Claude Code</strong><code>claude mcp add --transport http creator {url}</code>
-      <strong>Codex</strong><code>codex mcp add creator --url {url}{'\n'}codex mcp login creator</code>
+      <strong>Claude Code</strong><code>{claudeCodeAdd(url)}</code>
+      <strong>Codex</strong><code>{codexAdd(url)}</code>
       <strong>Claude.ai or Claude Desktop</strong><code>Settings → Connectors → Add custom connector → {url}</code>
       <small>Or install the creator-platform plugin, which adds this connection plus skills for each step.</small>
     </div>
