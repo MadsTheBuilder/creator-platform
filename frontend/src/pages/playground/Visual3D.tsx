@@ -1,5 +1,5 @@
 import { useEffect, useState, type ChangeEvent } from 'react';
-import { DownloadSimple, Trash, UploadSimple } from '@phosphor-icons/react';
+import { CaretDown, DownloadSimple, Trash, UploadSimple } from '@phosphor-icons/react';
 import { api } from '../../data/app-server';
 import { useAppServer, usePolled, useProjectChanges } from '../../data/hooks';
 import type { Project } from '../../data/projects';
@@ -20,6 +20,7 @@ export function Visual3D({ project, onShots }: { project: Project; onShots: () =
   const [job, setJob] = useState<BlockoutJob | null>(null);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState('');
+  const [expanded, setExpanded] = useState<Set<number>>(new Set()); // shots start folded so a long list stays scannable
   const base = `/api/playground/${project.id}`;
 
   const loadRefs = () => api<Reference[]>(`${base}/references`).then(setRefs, e => setError(e.message));
@@ -62,6 +63,7 @@ export function Visual3D({ project, onShots }: { project: Project; onShots: () =
     catch (e) { setError((e as Error).message); } finally { setBusy(''); }
   }
 
+  const fold = (no: number) => setExpanded(p => { const next = new Set(p); if (!next.delete(no)) next.add(no); return next; });
   const toggle = (no: number) => setPicked(p => { const next = new Set(p); if (!next.delete(no)) next.add(no); return next; });
   const file = (name: string) => `${base}/file/blockout/${job!.id}/${encodeURIComponent(name)}`;
   const done = job?.status === 'done' && job.output;
@@ -74,6 +76,7 @@ export function Visual3D({ project, onShots }: { project: Project; onShots: () =
       <div className="section-toolbar">
         <div><h2>Shots</h2><p className="muted">Pick the shots to block out. Add reference images or videos to any shot; they also appear in the editor's Assets panel.</p></div>
         <div className="toolbar-actions">
+          <Button onClick={() => setExpanded(expanded.size === shots.length ? new Set() : new Set(shots.map(s => s.no)))}>{expanded.size === shots.length ? 'Collapse all' : 'Expand all'}</Button>
           <Button onClick={() => setPicked(picked.size === shots.length ? new Set() : new Set(shots.map(s => s.no)))}>{picked.size === shots.length ? 'Clear' : 'Select all'}</Button>
           <Button className="primary" disabled={!picked.size || !!busy || active(job)} onClick={build}>Build blockout{picked.size ? ` (${picked.size})` : ''}</Button>
         </div>
@@ -81,10 +84,11 @@ export function Visual3D({ project, onShots }: { project: Project; onShots: () =
       {error && <p role="alert">{error}</p>}
       {active(job) && <Notice><span role="status">{job!.status === 'running' ? 'Blender is building the blockout on your computer…' : online ? 'Waiting for your computer to pick this up…' : 'Waiting for your computer. Start the helper to build this blockout.'}</span></Notice>}
       {job?.status === 'failed' && <p role="alert">{job.error}</p>}
-      <ul className="shot-picker">{shots.map(({ no, scene, shot }) => <li key={no} className={picked.has(no) ? 'selected' : ''}>
+      <ul className="shot-picker">{shots.map(({ no, scene, shot }) => <li key={no} className={`${picked.has(no) ? 'selected' : ''} ${expanded.has(no) ? '' : 'folded'}`}>
         <label className="shot-pick"><input type="checkbox" checked={picked.has(no)} onChange={() => toggle(no)}/>
           <span><strong>{no}. {shot.description}</strong><small className="muted">{scene} · {shot.magnification} · {shot.lens}{/^\d+$/.test(shot.lens) ? 'mm' : ''} · {shot.angle} · {shot.movement} · {shot.duration}s</small></span></label>
-        <div className="shot-refs">
+        <button type="button" className="shot-fold" aria-expanded={expanded.has(no)} aria-label={`${expanded.has(no) ? 'Collapse' : 'Expand'} shot ${no}`} onClick={() => fold(no)}><CaretDown size={16} aria-hidden/></button>
+        <div className="shot-refs" hidden={!expanded.has(no)}>
           {refs.filter(r => r.shot === no).map(r => <figure key={r.name}>
             {isVideo(r.name) ? <video src={`${base}/file/references/shot-${no}/${encodeURIComponent(r.name)}`} muted preload="metadata"/> : <img src={`${base}/file/references/shot-${no}/${encodeURIComponent(r.name)}`} alt={r.name} loading="lazy"/>}
             <button className="ref-remove" aria-label={`Remove ${r.name}`} onClick={() => removeRef(r)}><Trash size={14}/></button>

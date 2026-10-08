@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { ArrowRight, FolderSimple, PencilSimple, Plus, Trash } from '@phosphor-icons/react';
 import { useProjectChanges, useSession } from '../data/hooks';
 import { createProject, deleteProject, getProject, listProjects, updateProject, type Project } from '../data/projects';
-import { Button, Empty } from '../components/ui';
+import { Button, Empty, TrackBadge } from '../components/ui';
 import { Script } from './playground/Script';
 import { Shots } from './playground/Shots';
 import { Storyboard } from './playground/Storyboard';
@@ -75,7 +75,7 @@ export function Playground({ projectId, step: asked, onOpen, onProject, onConnec
     const step = stepIn(project.track, asked), current = stepsFor(project.track).find(s => s.step === step)!;
     return <>
       {step !== 'edit' && <div className="page-heading playground-heading">
-        <div><p className="eyebrow">{project.name}</p><h1>{current.label}</h1><p>{current.blurb}</p></div>
+        <div><p className="eyebrow">{project.name} <TrackBadge track={project.track}/></p><h1>{current.label}</h1><p>{current.blurb}</p></div>
         <Button onClick={() => setDialog({ mode: 'rename', project })}><PencilSimple size={16}/>Rename</Button>
       </div>}
       {step === 'script' ? <Script project={project} onSaved={setProject} onShots={() => onOpen(project.id, 'shots')}/>
@@ -101,7 +101,7 @@ export function Playground({ projectId, step: asked, onOpen, onProject, onConnec
       : <ul className="project-list glass">{projects.map(p => <li key={p.id} className="project-row">
         <button className="project-open" onClick={() => onOpen(p.id)}>
           <span className="project-original" aria-hidden><FolderSimple size={26}/></span>
-          <span className="project-summary"><strong>{p.name}</strong><small>{TRACKS[p.track].label} · {p.track === 'studio' ? '' : p.script.trim() ? `${p.script.trim().split(/\s+/).length} word script · ` : 'No script yet · '}Updated {new Date(p.updated_at).toLocaleDateString()}</small></span>
+          <span className="project-summary"><span className="project-name"><strong>{p.name}</strong><TrackBadge track={p.track}/></span><small>{p.track === 'studio' ? '' : p.script.trim() ? `${p.script.trim().split(/\s+/).length} word script · ` : 'No script yet · '}Updated {new Date(p.updated_at).toLocaleDateString()}</small></span>
           <ArrowRight size={20} aria-hidden/>
         </button>
         <Button aria-label={`Rename ${p.name}`} onClick={() => setDialog({ mode: 'rename', project: p })}><PencilSimple size={16}/></Button>

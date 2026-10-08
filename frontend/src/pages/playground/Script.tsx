@@ -3,7 +3,7 @@ import { UploadSimple } from '@phosphor-icons/react';
 import { usePolled } from '../../data/hooks';
 import { saveProjectScript, type Project } from '../../data/projects';
 import { active, latestJob, queueJob, type ScriptJob } from '../../data/video-jobs';
-import { Button, Notice } from '../../components/ui';
+import { Button, Collapser, Notice } from '../../components/ui';
 
 const TONES = ['Let Claude decide', 'Conversational and warm', 'Punchy and energetic', 'Calm and explanatory', 'Dark and investigative', 'Funny'];
 
@@ -12,6 +12,7 @@ export function Script({ project, onSaved, onShots }: { project: Project; onSave
   const [job, setJob] = useState<ScriptJob | null>(null);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  const [open, setOpen] = useState(true);
   const dirty = text !== project.script;
 
   useEffect(() => { setText(project.script); latestJob<ScriptJob>('script', { projectId: project.id }).then(setJob, e => setError(e.message)); }, [project.id]);
@@ -65,13 +66,18 @@ export function Script({ project, onSaved, onShots }: { project: Project; onSave
     <section className="glass storyboard-form" aria-label="Script">
       <div className="section-toolbar">
         <h2>Script</h2>
-        <label className="button"><UploadSimple size={16}/>Upload .txt / .md<input className="sr-only" type="file" accept=".txt,.md,.fountain,text/plain,text/markdown" onChange={upload}/></label>
+        <div className="toolbar-actions">
+          <label className="button"><UploadSimple size={16}/>Upload .txt / .md<input className="sr-only" type="file" accept=".txt,.md,.fountain,text/plain,text/markdown" onChange={upload}/></label>
+          <Collapser open={open} onToggle={() => setOpen(!open)} label="script"/>
+        </div>
       </div>
+      <div className="collapse-body" hidden={!open}>
       <textarea aria-label="Script" rows={16} maxLength={60000} placeholder="Paste your script: VO, dialogue, scene notes… or generate one below." value={text} onPaste={paste} onChange={e => { setText(e.target.value); setReplaced(null); }}/>
       {replaced !== null && <Notice><span role="status">Replaced the previous script with what you pasted.</span> <button className="link-button" onClick={() => { setText(replaced); setReplaced(null); }}>Undo</button></Notice>}
       <div className="toolbar-actions">
         <Button className="primary" disabled={busy || !dirty} onClick={() => save()}>Save script</Button>
         <Button disabled={busy || !text.trim()} onClick={async () => { if (!dirty || await save()) onShots(); }}>Next: shot breakdown</Button>
+      </div>
       </div>
     </section>
 

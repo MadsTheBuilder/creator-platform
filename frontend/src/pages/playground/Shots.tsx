@@ -3,7 +3,7 @@ import { usePolled, useProjectChanges } from '../../data/hooks';
 import type { Project } from '../../data/projects';
 import { active, latestJob, queueJob, type BreakdownJob } from '../../data/video-jobs';
 import { totalSeconds } from '../../storyboard/composition';
-import { Button, Notice } from '../../components/ui';
+import { Button, Collapser, Notice } from '../../components/ui';
 
 const FORMATS = ['Let Claude decide', 'Narrated documentary, dark and investigative', 'Explainer, clear and upbeat', 'Short film / drama', 'Ad / commercial', 'Reel / Short, energetic', 'Comedy sketch', 'Music video', 'Corporate / brand film'];
 const METHODS = ['Let Claude decide', 'Live action, full crew', 'Run-and-gun, small crew', 'AI-generated video (Higgsfield, Seedance, Veo)', '3D / animation', 'Stock footage + motion graphics'];
@@ -23,6 +23,9 @@ export function Shots({ project, onScript, on3d }: { project: Project; onScript:
   const { breakdown, setBreakdown, error, setError } = useBreakdown(project.id);
   const [busy, setBusy] = useState(false);
   const board = breakdown?.status === 'done' ? breakdown.output : null;
+  // The vision form is the way in; once a breakdown exists it folds away under the result.
+  const [formOpen, setFormOpen] = useState<boolean | null>(null);
+  const showForm = formOpen ?? !board;
 
   async function start(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -37,12 +40,15 @@ export function Shots({ project, onScript, on3d }: { project: Project; onScript:
     } catch (e) { setError((e as Error).message); } finally { setBusy(false); }
   }
 
-  return <div className="storyboard">
-    <form className="glass storyboard-form" onSubmit={start}>
+  const visionForm = (<form className="glass storyboard-form" onSubmit={start}>
       <div className="section-toolbar">
         <div><h2>Vision</h2><p className="muted">{project.script.trim() ? `Breaking down the project script (${project.script.trim().split(/\s+/).length} words).` : 'This project has no script yet.'}</p></div>
-        <Button type="button" onClick={onScript}>Edit script</Button>
+        <div className="toolbar-actions">
+          <Button type="button" onClick={onScript}>Edit script</Button>
+          <Collapser open={showForm} onToggle={() => setFormOpen(!showForm)} label="form"/>
+        </div>
       </div>
+      <div className="collapse-body" hidden={!showForm}>
       <div className="storyboard-fields">
         <label>Format and tone<select name="format">{FORMATS.map(f => <option key={f}>{f}</option>)}</select></label>
         <label>Production method<select name="method">{METHODS.map(m => <option key={m}>{m}</option>)}</select></label>
@@ -52,7 +58,11 @@ export function Shots({ project, onScript, on3d }: { project: Project; onScript:
       <label>How should it feel?<textarea name="feel" rows={2} maxLength={1000} placeholder="References, mood, what must never be shown…"/></label>
       <Button className="primary" type="submit" disabled={busy || active(breakdown) || !project.script.trim()}>Break down script</Button>
       {error && <p role="alert">{error}</p>}
-    </form>
+      </div>
+    </form>);
+
+  return <div className="storyboard">
+    {!board && visionForm}
 
     {active(breakdown) && <Notice><span role="status">Breaking down your script into shots. Longer scripts take a few minutes; you can leave this page and come back.</span></Notice>}
     {breakdown?.status === 'failed' && <p role="alert">{breakdown.error}</p>}
@@ -71,5 +81,7 @@ export function Shots({ project, onScript, on3d }: { project: Project; onScript:
         </tbody>); })()}
       </table></div>
     </section>}
+
+    {board && visionForm}
   </div>;
 }

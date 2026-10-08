@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { api } from '../../data/app-server';
 import { useAppServer, useProjectChanges } from '../../data/hooks';
 import type { Project } from '../../data/projects';
-import { Button, Empty } from '../../components/ui';
+import { Button, Empty, Lightbox } from '../../components/ui';
 import { useBreakdown } from './Shots';
 
 type BoardShot = { no: number; start: number; duration: number; frames: { file: string; at: number }[] };
@@ -22,6 +22,7 @@ export function Storyboard({ project, onShots, onBlockout }: { project: Project;
   const [video, setVideo] = useState('');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  const [zoom, setZoom] = useState<{ src: string; alt: string } | null>(null);
   const base = `/api/playground/${project.id}`;
 
   const load = () => api<{ storyboard: Board | null; videos: string[] }>(`${base}/storyboard`)
@@ -74,11 +75,12 @@ export function Storyboard({ project, onShots, onBlockout }: { project: Project;
         return <article key={s.no} id={`board-shot-${s.no}`} className="glass board-shot">
           <header><strong>SHOT {pad(s.no)}</strong><h3>{shot?.description.split('.')[0] ?? 'Not in the breakdown any more'}</h3>
             <span>{pad(s.no)} / {total}  {s.start}–{s.start + s.duration} s ({s.duration} s)</span></header>
-          <div className="board-frames">{s.frames.map((f, k) => <figure key={f.file}><img src={img(f.file)} alt={`Shot ${s.no}, ${f.at.toFixed(2)} s`} loading="lazy"/>
+          <div className="board-frames">{s.frames.map((f, k) => <figure key={f.file}><button type="button" className="board-zoom" aria-label={`Enlarge shot ${s.no}, ${f.at.toFixed(2)} s`} onClick={() => setZoom({ src: img(f.file), alt: `Shot ${s.no}, ${f.at.toFixed(2)} s` })}><img src={img(f.file)} alt="" loading="lazy"/></button>
             <figcaption>{frameLabel(k, s.frames.length)} · {f.at.toFixed(2)} s</figcaption></figure>)}</div>
           <dl>{rows.filter(([, text]) => text).map(([label, text]) => <div key={label}><dt>{label}</dt><dd>{text}</dd></div>)}</dl>
         </article>;
       })}
     </>}
+    <Lightbox image={zoom} onClose={() => setZoom(null)}/>
   </div>;
 }
