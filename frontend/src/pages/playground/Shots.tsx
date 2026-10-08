@@ -48,6 +48,7 @@ export function Shots({ project, onScript, on3d }: { project: Project; onScript:
           <Collapser open={showForm} onToggle={() => setFormOpen(!showForm)} label="form"/>
         </div>
       </div>
+      <p className="muted">Or skip the form: <a href="#connections">connect the MCP plugin</a> and ask Claude Code or Codex to make the breakdown straight from your script.</p>
       <div className="collapse-body" hidden={!showForm}>
       <div className="storyboard-fields">
         <label>Format and tone<select name="format">{FORMATS.map(f => <option key={f}>{f}</option>)}</select></label>
