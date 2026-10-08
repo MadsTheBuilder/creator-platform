@@ -79,8 +79,8 @@ export function Playground({ projectId, step: asked, onOpen, onProject, onConnec
         <Button onClick={() => setDialog({ mode: 'rename', project })}><PencilSimple size={16}/>Rename</Button>
       </div>}
       {step === 'script' ? <Script project={project} onSaved={setProject} onShots={() => onOpen(project.id, 'shots')}/>
-        : step === 'shots' ? <Shots project={project} onScript={() => onOpen(project.id, 'script')} onStoryboard={() => onOpen(project.id, 'storyboard')}/>
-        : step === 'storyboard' ? <Storyboard project={project} onShots={() => onOpen(project.id, 'shots')}/>
+        : step === 'shots' ? <Shots project={project} onScript={() => onOpen(project.id, 'script')} on3d={() => onOpen(project.id, '3d')}/>
+        : step === 'storyboard' ? <Storyboard project={project} onShots={() => onOpen(project.id, 'shots')} onBlockout={() => onOpen(project.id, '3d')}/>
         : step === '3d' ? <Visual3D project={project} onShots={() => onOpen(project.id, 'shots')}/>
         : step === 'ai' ? <AIVideo project={project} on3d={() => onOpen(project.id, '3d')}/>
         : step === 'direct' ? <Direct project={project} onSaved={setProject}/>

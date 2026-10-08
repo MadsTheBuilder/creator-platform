@@ -397,6 +397,30 @@ meter::-moz-meter-bar{border-radius:99px;background:var(--orange)}
 .direct-refs .ref-add{width:100%;justify-content:center}
 @media (max-width:760px){.direct-top{grid-template-columns:1fr}}
 .ref-add:focus-within{outline:2px solid var(--orange-soft);outline-offset:2px}
+/* Storyboard: overview grid of mid frames, then one sheet per shot (header, frames, camera/action/notes/audio). */
+.board-overview{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:14px 12px;margin:0;padding:0;list-style:none}
+.board-overview button{display:block;width:100%;padding:0;border:0;border-radius:8px;overflow:hidden;background:#000;cursor:pointer}
+.board-overview button:focus-visible{outline:2px solid var(--orange-soft);outline-offset:2px}
+.board-overview img,.board-frames img{display:block;width:100%;aspect-ratio:16/9;object-fit:cover}
+.board-overview span{display:block;margin-top:6px;color:var(--muted);font-size:.75rem;font-variant-numeric:tabular-nums}
+.board-shot{overflow:hidden;scroll-margin-top:24px}
+.board-shot header{display:flex;align-items:baseline;gap:18px;flex-wrap:wrap;padding:14px 20px;background:rgb(0 0 0 / .45);border-bottom:1px solid var(--rim)}
+.board-shot header strong{color:var(--orange);font-size:1.125rem;letter-spacing:.02em}
+.board-shot header h3{flex:1;min-width:0;margin:0;font-size:1.125rem;font-weight:600}
+.board-shot header span{color:var(--muted);font-size:.8125rem;font-variant-numeric:tabular-nums;white-space:pre}
+.board-frames{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;padding:16px 20px 0}
+.board-frames figure{margin:0;border-radius:8px;overflow:hidden;background:#000}
+.board-frames figcaption{padding:6px 10px;font-size:.75rem;font-variant-numeric:tabular-nums}
+.board-shot dl{display:grid;grid-template-columns:max-content 1fr;gap:6px 18px;margin:0;padding:16px 20px 20px;font-size:.875rem;line-height:1.5}
+.board-shot dl div{display:contents}
+.board-shot dt{color:var(--orange-soft);font-size:.75rem;font-weight:600;letter-spacing:.06em;text-transform:uppercase;padding-top:2px}
+.board-shot dd{margin:0}
+@media (max-width:720px){
+  .board-overview{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .board-frames{grid-template-columns:minmax(0,1fr)}
+  .board-shot dl{grid-template-columns:1fr;gap:2px}
+  .board-shot dd{margin-bottom:8px}
+}
 .blockout-stills{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:10px}
 .blockout-stills figure{margin:0}
 .blockout-stills img{width:100%;border-radius:10px;display:block}

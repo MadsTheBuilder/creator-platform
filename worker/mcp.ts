@@ -28,6 +28,7 @@ import {
 import { BREAKDOWN_SCHEMA } from './schemas.ts';
 import { cardSlots, syncStyle } from './style-files.ts';
 import { probe, ticketFor } from './transcribe.ts';
+import { makeStoryboard, readStoryboard, StoryboardError } from './storyboard.ts';
 import { checkBlock, estimateUsd, MODELS, promptBlocks, referencesOf, sendable, shotsFromCuts } from './video-prompts.ts';
 
 // Changes exactly when the tools or playbooks change, so clients can tell a new surface from a restart.
@@ -41,7 +42,7 @@ const hyperframes = (args: string[], timeout: number) =>
   run(process.execPath, [HYPERFRAMES, ...args], { timeout, maxBuffer: 16 * MB, env: { ...process.env, HYPERFRAMES_NO_TELEMETRY: '1' } });
 
 const INSTRUCTIONS = `Creator Platform: the creator's video projects, each on one of two tracks. Production (footage that is shot or AI-generated):
-script -> shot breakdown -> storyboard -> Blender blockout -> AI video prompts and takes (get_guide("ai-video"); generated only with the creator's
+script -> shot breakdown -> Blender blockout -> storyboard (make_storyboard) -> AI video prompts and takes (get_guide("ai-video"); generated only with the creator's
 own Higgsfield account) -> HyperFrames edit. Studio (motion graphics built in code around the creator's own
 recording, or around music alone): direction + references -> transcript -> sound -> beat plan (approved) -> beat board
 (snapshot_board; the creator's notes via get_board) -> HyperFrames build -> snapshot critique -> edit;
@@ -504,6 +505,36 @@ export function createMcp(db: SupabaseClient) {
       const data = { job_id: job.id, shots: job.input?.shots, files, preview: files.includes('preview.mp4') ? `/api/playground/${project_id}/file/blockout/${job.id}/preview.mp4` : null };
       // No structuredContent here: clients that prefer it would drop the stills.
       return { content: [{ type: 'text', text: JSON.stringify(data) }, ...content] } as Result;
+    }));
+
+    server.registerTool('make_storyboard', {
+      title: 'Make the storyboard',
+      description: 'Lay the project\'s storyboard out from a blockout video: 3 frames per shot (6 for shots of 9 s or more) at its start, middle and end, shown in Playground > Storyboard with each shot\'s camera, action, notes and audio from the breakdown. The video must run as long as the shots it covers. It replaces the previous storyboard. Then look at it with get_storyboard.',
+      inputSchema: z.object({
+        project_id: projectId,
+        video: z.string().max(200).describe('blockout/<job_id>/preview.mp4 (a finished blockout; get_project lists them) or references/shot-N/<video> cut to the whole breakdown.'),
+        request_id: requestId,
+      }),
+      annotations: { ...write, idempotentHint: true },
+    }, guarded('make_storyboard', async ({ project_id, video }) => {
+      try {
+        const board = await makeStoryboard(db, user, project_id, video);
+        return ok({ shots: board.shots.length, frames: board.shots.reduce((n, s) => n + s.frames.length, 0), seconds: board.seconds },
+          'Made; the creator sees it in Playground > Storyboard. Look at it with get_storyboard.');
+      } catch (e) { if (e instanceof StoryboardError) return refuse(e.message); throw e; }
+    }));
+
+    server.registerTool('get_storyboard', {
+      title: 'See the storyboard',
+      description: 'The project\'s storyboard: when each frame was taken, plus an overview image of every shot\'s middle frame (five across, in shot order), so you can check each framing against its shot in get_breakdown.',
+      inputSchema: z.object({ project_id: projectId }),
+      annotations: read,
+    }, guarded('get_storyboard', async ({ project_id }) => {
+      const board = await readStoryboard(user, project_id);
+      if (!board) return refuse('No storyboard yet. Make one from a finished blockout with make_storyboard.');
+      const overview = await readFile(join(projectDir(user, project_id), 'storyboard', 'overview.jpg')).catch(() => null);
+      // No structuredContent: clients that prefer it would drop the image.
+      return { content: [{ type: 'text', text: JSON.stringify(board) }, ...overview ? [{ type: 'image', data: overview.toString('base64'), mimeType: 'image/jpeg' }] : []] } as Result;
     }));
 
     // ---- Production track, after the 3D visual: AI video prompts, generated with the creator's own Higgsfield account.

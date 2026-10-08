@@ -78,7 +78,7 @@ for (const mode of ['modern', 'legacy'] as const) {
     assert.match(client.getServerVersion()?.version ?? '', /\w/);
     const { tools } = await client.listTools();
     assert.deepEqual(tools.map(t => t.name), ['get_guide', 'list_projects', 'create_project', 'get_project', 'save_script', 'get_breakdown', 'save_breakdown',
-      'seed_composition', 'get_composition', 'save_composition', 'list_references', 'create_upload_url', 'queue_blockout', 'get_job', 'get_blockout',
+      'seed_composition', 'get_composition', 'save_composition', 'list_references', 'create_upload_url', 'queue_blockout', 'get_job', 'get_blockout', 'make_storyboard', 'get_storyboard',
       'analyze_video', 'save_prompts', 'prepare_generation', 'import_take',
       'get_transcript', 'transcribe_recording', 'fix_transcript', 'save_plan', 'analyze_beats', 'snapshot', 'snapshot_board', 'get_board',
       'list_styles', 'get_style', 'create_style', 'save_style_file']);

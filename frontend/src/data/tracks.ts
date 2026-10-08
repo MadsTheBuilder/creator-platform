@@ -8,12 +8,12 @@ const EDIT: StepInfo = { step: 'edit', label: 'Video edit', blurb: 'The full Hyp
 export const TRACKS: Record<Track, { label: string; blurb: string; steps: StepInfo[] }> = {
   production: {
     label: 'Production',
-    blurb: 'Footage you shoot or generate with AI. Every shot is planned first: breakdown, storyboard, 3D blockout.',
+    blurb: 'Footage you shoot or generate with AI. Every shot is planned first: breakdown, 3D blockout, storyboard.',
     steps: [
       { step: 'script', label: 'Script', blurb: 'Write, upload or generate the script.' },
       { step: 'shots', label: 'Shot breakdown', blurb: 'Every shot with framing, lens, camera, light and timing.' },
-      { step: 'storyboard', label: 'Storyboard', blurb: '2D storyboards of the shot breakdown, made with HyperFrames.' },
       { step: '3d', label: '3D visual', blurb: 'Reference images and videos per shot, and Blender blockouts built on your PC.' },
+      { step: 'storyboard', label: 'Storyboard', blurb: 'Your blockout as a shot-by-shot board: frames, camera, action, notes and audio.' },
       { step: 'ai', label: 'AI video', blurb: 'Timed prompts written from your blockout, and takes generated with your own Higgsfield account.' },
       EDIT,
     ],

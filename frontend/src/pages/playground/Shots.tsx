@@ -19,7 +19,7 @@ export function useBreakdown(projectId: string) {
   return { breakdown, setBreakdown, error, setError };
 }
 
-export function Shots({ project, onScript, onStoryboard }: { project: Project; onScript: () => void; onStoryboard: () => void }) {
+export function Shots({ project, onScript, on3d }: { project: Project; onScript: () => void; on3d: () => void }) {
   const { breakdown, setBreakdown, error, setError } = useBreakdown(project.id);
   const [busy, setBusy] = useState(false);
   const board = breakdown?.status === 'done' ? breakdown.output : null;
@@ -60,7 +60,7 @@ export function Shots({ project, onScript, onStoryboard }: { project: Project; o
     {board && <section className="glass storyboard-result" aria-label="Storyboard">
       <div className="section-toolbar">
         <div><h2>{board.title}</h2><p className="muted">{board.scenes.reduce((n, s) => n + s.shots.length, 0)} shots · {Math.round(totalSeconds(board))} s · {board.aspect}{breakdown?.input.source === 'mcp' && ' · from your AI assistant'}</p></div>
-        <Button className="primary" onClick={onStoryboard}>Storyboard</Button>
+        <Button className="primary" onClick={on3d}>3D visual</Button>
       </div>
       {board.brief && <details><summary>Vision brief</summary><p className="storyboard-brief">{board.brief}</p></details>}
       <div className="table-scroll storyboard-shots"><table>

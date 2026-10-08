@@ -32,5 +32,6 @@ The first tool call opens a browser to sign in with the Google account you use f
 | `shot-breakdown` | Interviews you about the vision, then writes and saves the shot breakdown |
 | `composition` | Edits the HyperFrames animatic / edit in the Studio |
 | `blockout` | Runs a Blender blockout on your PC, looks at the stills, refines the breakdown |
+| `storyboard` | Lays the blockout out as a shot-by-shot storyboard and checks each frame against its shot |
 | `ai-video` | Writes timed AI video prompts from the blockout (checked before saving) and generates takes with your own Higgsfield account |
 | `studio-video` | Studio track: plans beats from your recording's transcript, builds the motion-graphics video, checks its own frames |

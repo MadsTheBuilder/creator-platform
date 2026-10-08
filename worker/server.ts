@@ -15,6 +15,7 @@ import { JobError } from './job-error.ts';
 import { mountMcp } from './mcp.ts';
 import { BLOCKOUT_FILE, DATA, ensureProject, hasRoom, isBlank, latestBreakdown, listMedia, listReferences, listTakes, local, MB, mediaPath, mimeOf, owns as ownsProject, projectDir,
   readBoard, readComposition, readPromptBlockout, readPrompts, refPath, SAFE_NAME, saveBody, sendFile, sha256, touchProject, UploadError, writeBoard, writeComposition } from './project-files.ts';
+import { makeStoryboard, readStoryboard, StoryboardError, storyboardVideos } from './storyboard.ts';
 import { finish as finishTranscription, probe, settings, speech, tickets, whisperJson } from './transcribe.ts';
 
 const SITE = local('../frontend/dist');
@@ -190,6 +191,20 @@ export function startServer(db: SupabaseClient, port: number) {
     if (!await owns(user, id)) return c.json({ error: 'not found' }, 404);
     const [prompts, blockout, takes] = await Promise.all([readPrompts(user, id), readPromptBlockout(user, id), listTakes(user, id)]);
     return c.json({ prompts, blockout, takes });
+  });
+  // Production track: the storyboard, frames from a blockout video laid out per shot (storyboard.ts).
+  app.get('/api/playground/:id/storyboard', async c => {
+    const user = c.get('user'), id = c.req.param('id');
+    if (!await owns(user, id)) return c.json({ error: 'not found' }, 404);
+    const [storyboard, videos] = await Promise.all([readStoryboard(user, id), storyboardVideos(db, user, id)]);
+    return c.json({ storyboard, videos });
+  });
+  app.post('/api/playground/:id/storyboard', async c => {
+    const user = c.get('user'), id = c.req.param('id');
+    if (!await owns(user, id)) return c.json({ error: 'not found' }, 404);
+    const { video } = await c.req.json().catch(() => ({}));
+    try { return c.json(await makeStoryboard(db, user, id, String(video ?? ''))); }
+    catch (e) { if (e instanceof StoryboardError) return c.json({ error: e.message }, 400); throw e; }
   });
   app.get('/api/playground/:id/file/*', async c => {
     const id = c.req.param('id');
