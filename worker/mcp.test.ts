@@ -90,7 +90,7 @@ for (const mode of ['modern', 'legacy'] as const) {
       'seed_composition', 'get_composition', 'save_composition', 'list_references', 'create_upload_url', 'queue_blockout', 'get_job', 'get_blockout', 'make_storyboard', 'get_storyboard',
       'analyze_video', 'save_prompts', 'prepare_generation', 'import_take',
       'get_transcript', 'transcribe_recording', 'fix_transcript', 'save_plan', 'analyze_beats', 'snapshot', 'snapshot_board', 'get_board',
-      'list_styles', 'get_style', 'create_style', 'save_style_file', 'list_radar_runs', 'get_radar_run', 'review_radar_idea', 'list_plan_items', 'get_plan_item', 'save_outline']);
+      'list_styles', 'get_style', 'create_style', 'save_style_file', 'list_radar_runs', 'get_radar_run', 'save_radar_ideas', 'review_radar_idea', 'list_plan_items', 'get_plan_item', 'save_outline']);
     assert.equal(tools.some(t => t.name === 'confirm_creator_profile'), false);
     assert.ok(tools.every(t => t.description && t.annotations));
     await client.close();

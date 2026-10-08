@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { cleanTopics, coveredBy, radarModels, isPrimary, label, median, onTopic, topicScore, trendSlope, type Video } from './radar.ts';
+import { cleanTopics, coveredBy, isPrimary, label, median, onTopic, topicScore, trendSlope, type Video } from './radar.ts';
 
 test('scoring maths matches topic-radar', () => {
   assert.equal(median([3, 1, 2]), 2);
@@ -42,10 +42,4 @@ test('model topics keep only evidence that was actually collected', () => {
   assert.equal(checks.returned, 3);
   assert.equal(checks.invented_citations, 1);
   assert.deepEqual(checks.dropped.map(d => d.reason), ['fewer than two collected sources', 'duplicate']);
-});
-
-test('free OpenRouter models are tried in order, an explicit list wins', () => {
-  assert.equal(radarModels({ ANTHROPIC_BASE_URL: 'https://openrouter.ai/api' })[0], 'google/gemma-4-31b-it:free');
-  assert.deepEqual(radarModels({ RADAR_MODELS: 'a, b' }), ['a', 'b']);
-  assert.deepEqual(radarModels({ CLAUDE_MODEL: 'claude-opus-5-5' }), ['claude-opus-5-5']);
 });

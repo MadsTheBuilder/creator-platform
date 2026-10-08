@@ -50,7 +50,7 @@ startServer(db, Number(process.env.PORT ?? 8787));
 const radarShutdown = new AbortController();
 process.once('SIGTERM', () => radarShutdown.abort());
 process.once('SIGINT', () => radarShutdown.abort());
-void runRadar(db, claude, radarShutdown.signal);
+void runRadar(db, radarShutdown.signal);
 console.log('video worker ready');
 for (;;) {
   try { if (!(await next())) await sleep(3000); }

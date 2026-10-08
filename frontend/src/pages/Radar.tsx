@@ -1,5 +1,5 @@
 import { useEffect, useState, type FormEvent } from 'react';
-import { Archive, ArrowClockwise, ArrowUUpLeft, Bell, BookmarkSimple, CalendarPlus, FileText, Newspaper, Sparkle, Trash, X, YoutubeLogo } from '@phosphor-icons/react';
+import { Archive, ArrowClockwise, ArrowUUpLeft, Bell, BookmarkSimple, CalendarPlus, ArrowLeft, FileText, Newspaper, Sparkle, Trash, X, YoutubeLogo } from '@phosphor-icons/react';
 import { Button, Empty, Notice } from '../components/ui';
 import { useSession } from '../data/hooks';
 import { createItem } from '../data/plan';
@@ -21,7 +21,7 @@ const KIND: Record<Evidence['kind'], { label: string; icon: typeof Newspaper }> 
 const when = (iso: string | null) => iso ? new Date(iso).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' }) : 'never';
 const RUN: Record<Run['status'], string> = { queued: 'Waiting to start', running: 'Working (this takes a few minutes)', done: 'Finished', failed: 'Stopped' };
 
-export function Radar({ onConnections }: { onConnections: () => void }) {
+export function Radar({ topic, onTopic, onConnections }: { topic?: string; onTopic: (id?: string) => void; onConnections: () => void }) {
   const session = useSession();
   const changes = useRadarChanges(session?.user.id);
   const [data, setData] = useState<RadarData | null>(null);
@@ -29,6 +29,9 @@ export function Radar({ onConnections }: { onConnections: () => void }) {
   const [busy, setBusy] = useState(false);
   const reload = () => loadRadar().then(d => { setData(d); setError(''); }, e => setError(e.message));
   useEffect(() => { if (session) void reload(); }, [session?.user.id, changes]);
+  // A topic that is gone, dropped or archived (or a bad link) goes back to the grid.
+  const open = data?.ideas.find(i => i.id === topic);
+  useEffect(() => { if (topic && data && (!open || open.status === 'archived')) onTopic(undefined); }, [topic, data, open]);
 
   if (session === undefined) return <p role="status">Checking your account…</p>;
   if (!session) return <Empty title="Sign in to get video ideas" body="Ideas and the stories you watch are saved privately to your account."><Button className="primary" onClick={onConnections}>Go to sign-in</Button></Empty>;
@@ -42,6 +45,16 @@ export function Radar({ onConnections }: { onConnections: () => void }) {
   const active = (kind: Run['kind']) => ['queued', 'running'].includes(latest(kind)?.status ?? '');
   const saved = data.ideas.filter(i => i.status === 'saved'), fresh = data.ideas.filter(i => i.status === 'new'), archived = data.ideas.filter(i => i.status === 'archived');
   const lastScan = data.runs.find(r => r.kind === 'scan' && r.status === 'done');
+  const waitingForClaude = latest('scan') === lastScan && lastScan?.summary?.ideas === undefined;   // collected, not yet grouped into ideas
+
+  if (topic && open && open.status !== 'archived') {
+    const mine = { updates: data.updates.filter(u => u.idea_id === open.id), reviews: data.reviews.filter(r => r.idea_id === open.id) };
+    return <div className="radar">
+      <a className="radar-back" href="#trends"><ArrowLeft size={16} aria-hidden/>All ideas</a>
+      {error && <div className="notice" role="alert">{error}</div>}
+      {open.status === 'saved' ? <Watched idea={open} {...mine} full busy={busy} act={act}/> : <IdeaCard idea={open} reviews={mine.reviews} busy={busy} act={act}/>}
+    </div>;
+  }
 
   return <div className="radar">
     <div className="radar-head">
@@ -56,7 +69,7 @@ export function Radar({ onConnections }: { onConnections: () => void }) {
     </div>
     {error && <div className="notice" role="alert">{error}</div>}
     {(['scan', 'watch'] as const).map(kind => { const run = latest(kind); return run && run.status !== 'done' && <div key={kind} className="radar-run" role="status">
-      <strong>{kind === 'scan' ? 'Finding new ideas' : 'Checking saved stories'}:</strong> {RUN[run.status]}{run.error && ` · ${run.error}`}
+      <strong>{kind === 'scan' ? 'New ideas scan' : 'Checking saved stories'}:</strong> {RUN[run.status]}{run.error && ` · ${run.error}`}
     </div>; })}
 
     <ProfileForm data={data} busy={busy} onSave={fields => act(() => saveProfile(fields, !!data.profile))}/>
@@ -65,12 +78,12 @@ export function Radar({ onConnections }: { onConnections: () => void }) {
       <section aria-labelledby="radar-watching">
         <h2 id="radar-watching"><Bell size={20} aria-hidden/> Watching <span className="muted">({saved.length})</span></h2>
         {!saved.length && <p className="muted">Save an idea to get daily updates on it: new reports, official documents and videos.</p>}
-        {saved.map(idea => <Watched key={idea.id} idea={idea} updates={data.updates.filter(u => u.idea_id === idea.id)} reviews={data.reviews.filter(r => r.idea_id === idea.id)} busy={busy} act={act}/>)}
+        <div className="radar-cards">{saved.map(idea => <Tile key={idea.id} idea={idea} unread={data.updates.filter(u => u.idea_id === idea.id && !u.seen).length}/>)}</div>
       </section>
       <section aria-labelledby="radar-new">
         <h2 id="radar-new"><Sparkle size={20} aria-hidden/> New ideas <span className="muted">({fresh.length})</span></h2>
-        {!fresh.length && <p className="muted">{active('scan') ? 'Finding ideas now. They appear here when the scan finishes.' : 'No new ideas yet. Press "Find new ideas".'}</p>}
-        <div className="radar-cards">{fresh.map(idea => <IdeaCard key={idea.id} idea={idea} reviews={data.reviews.filter(r => r.idea_id === idea.id)} busy={busy} act={act}/>)}</div>
+        {!fresh.length && <p className="muted">{active('scan') ? 'Collecting this week’s videos and news. This takes a few minutes.' : waitingForClaude ? 'This week’s videos and news are collected. Ask your Claude: "Turn my latest Trends & News scan into ideas." It saves them here.' : 'No new ideas yet. Press "Find new ideas".'}</p>}
+        <div className="radar-cards">{fresh.map(idea => <Tile key={idea.id} idea={idea}/>)}</div>
       </section>
       {archived.length > 0 && <details className="radar-archive">
         <summary><Archive size={16} aria-hidden/> Archived <span className="muted">({archived.length})</span></summary>
@@ -85,6 +98,18 @@ export function Radar({ onConnections }: { onConnections: () => void }) {
       </details>}
     </>}
   </div>;
+}
+
+// Grid card: a square glance. The whole thing opens the topic's page.
+function Tile({ idea, unread = 0 }: { idea: Idea; unread?: number }) {
+  return <a className="glass radar-tile" href={`#trends/${idea.id}`}>
+    <span className="radar-card-head"><strong>{idea.name}</strong></span>
+    <span className="radar-tile-text">{idea.change_note ?? idea.summary}</span>
+    <span className="radar-tile-foot">
+      <span className={`radar-label radar-${idea.label.toLowerCase()}`}>{idea.label}</span>
+      {unread > 0 ? <span className="radar-unread">{unread} new</span> : <span className="muted">{idea.evidence.length} sources</span>}
+    </span>
+  </a>;
 }
 
 function ProfileForm({ data, busy, onSave }: { data: RadarData; busy: boolean; onSave: (f: { channel_url: string; format: 'shorts' | 'long' | 'both'; region: string; seeds: string[]; buckets: string[] }) => void }) {
@@ -163,11 +188,17 @@ function IdeaCard({ idea, reviews, busy, act }: { idea: Idea; reviews: Review[];
   </article>;
 }
 
-function Watched({ idea, updates, reviews, busy, act }: { idea: Idea; updates: RadarData['updates']; reviews: Review[]; busy: boolean; act: (w: () => Promise<unknown>) => void }) {
+function Watched({ idea, updates, reviews, full, busy, act }: { idea: Idea; full?: boolean; updates: RadarData['updates']; reviews: Review[]; busy: boolean; act: (w: () => Promise<unknown>) => void }) {
   const unread = updates.filter(u => !u.seen);
   return <article className="glass radar-card radar-watched">
     <div className="radar-card-head"><h3>{idea.name}</h3>{unread.length > 0 && <span className="radar-unread">{unread.length} new</span>}</div>
     <p>{idea.change_note ?? 'Not checked yet. The first check runs within a day, or press "Check saved stories".'}</p>
+    {full && <>
+      <p>{idea.summary}</p>
+      {idea.angle && <p><strong>Angle{idea.bucket && ` (${idea.bucket})`}:</strong> {idea.angle}</p>}
+      <Facts idea={idea}/>
+      <details><summary>Sources ({idea.evidence.length})</summary><EvidenceList items={idea.evidence}/></details>
+    </>}
     <p className="muted">Last checked {when(idea.last_checked)}</p>
     <Reviews reviews={reviews}/>
     {updates.length > 0 && <details open={unread.length > 0}><summary>Updates ({updates.length})</summary>

@@ -9,7 +9,7 @@ export type Metrics = { breakout: number; peer_videos: number; slope: number | n
 export type Idea = { id: string; name: string; summary: string; angle: string; bucket: string | null; status: 'new' | 'saved' | 'dropped' | 'archived'; label: string; score: number;
   metrics: Metrics; evidence: Evidence[]; change_note: string | null; last_checked: string | null; created_at: string };
 export type Update = { id: string; idea_id: string; kind: Evidence['kind']; title: string; url: string; source: string | null; published: string | null; seen: boolean; found_at: string };
-export type Run = { id: string; kind: 'scan' | 'watch'; status: 'queued' | 'running' | 'done' | 'failed'; error: string | null; created_at: string; finished_at: string | null };
+export type Run = { id: string; kind: 'scan' | 'watch'; status: 'queued' | 'running' | 'done' | 'failed'; error: string | null; summary: { ideas?: number } | null; created_at: string; finished_at: string | null };
 // An independent check of an idea by the creator's own Claude or Codex over MCP (review_radar_idea). Advice only.
 export type Review = { id: string; idea_id: string; reviewer: 'claude' | 'codex' | 'other'; model: string | null; verdict: 'keep' | 'fix' | 'drop'; notes: string;
   suggestion: { name?: string; summary?: string; angle?: string }; created_at: string };
@@ -23,7 +23,7 @@ export async function loadRadar(): Promise<Radar> {
     db.from('radar_profiles').select('channel_url,format,region,seeds,buckets,channel').maybeSingle(),
     db.from('radar_ideas').select('id,name,summary,angle,bucket,status,label,score,metrics,evidence,change_note,last_checked,created_at').neq('status', 'dropped').order('score', { ascending: false }),
     db.from('radar_updates').select('id,idea_id,kind,title,url,source,published,seen,found_at').order('found_at', { ascending: false }).limit(300),
-    db.from('radar_runs').select('id,kind,status,error,created_at,finished_at').order('created_at', { ascending: false }).limit(10),
+    db.from('radar_runs').select('id,kind,status,error,summary,created_at,finished_at').order('created_at', { ascending: false }).limit(10),
     db.from('radar_reviews').select('id,idea_id,reviewer,model,verdict,notes,suggestion,created_at').order('created_at', { ascending: false }).limit(200),
   ]);
   const error = profile.error ?? ideas.error ?? updates.error ?? runs.error ?? reviews.error;

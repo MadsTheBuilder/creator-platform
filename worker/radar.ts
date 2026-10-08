@@ -2,8 +2,8 @@
 // Ported from the topic-radar skill (~/.claude/skills/topic-radar): same scoring maths and labels, minus X/Reddit
 // (mostly noise in the Indian Lawtuber runs) and page fetching. Sources: YouTube Data API (free quota),
 // Google News through treg (Serper, $0.001 a call), Google Trends through SerpApi (free plan, 250 searches a month).
-// A weekly scan finds ideas; a daily watch checks saved ideas for news, original documents and new videos.
-import type Anthropic from '@anthropic-ai/sdk';
+// A weekly scan collects the pool; the creator's own Claude or Codex groups it into ideas (save_radar_ideas over MCP).
+// A daily watch checks saved ideas for news, original documents and new videos. No AI key lives on the server.
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { JobError } from './job-error.ts';
@@ -157,61 +157,6 @@ async function slope(keywords: string[], region: string): Promise<number | null>
   return trendSlope((d.interest_over_time?.timeline_data ?? []).map((t: any) => (t.values ?? []).reduce((a: number, v: any) => a + (Number(v.extracted_value) || 0), 0)));
 }
 
-// ---------- the model's two jobs: group signals into topics, and say what changed ----------
-
-// Free OpenRouter models, tried in order (a free model is often rate limited or briefly down).
-// Gemma 4 31B first: strong on Hindi/Hinglish headlines and answers in clean JSON; the Nemotrons as fallbacks.
-// ponytail: picked from OpenRouter's free list on 2026-10-08, not yet benchmarked on a real scan; set RADAR_MODELS to change.
-const FREE_MODELS = 'google/gemma-4-31b-it:free,nvidia/nemotron-3-ultra-550b-a55b:free,nvidia/nemotron-3-super-120b-a12b:free';
-export const radarModels = (env = process.env) => (env.RADAR_MODELS || (env.ANTHROPIC_BASE_URL?.includes('openrouter') ? FREE_MODELS : env.CLAUDE_MODEL) || 'claude-opus-5-5')
-  .split(',').map(m => m.trim()).filter(Boolean);
-
-// Every AI step is recorded (exact input, raw output, the model that answered) in radar_ai_steps, so the
-// creator's Claude or Codex can re-evaluate it over MCP (get_radar_run, review_radar_idea).
-type Trace = { db: SupabaseClient; runId: string; userId: string };
-async function ask(claude: Anthropic, trace: Trace, step: 'cluster' | 'change_note', system: string, user: string, max_tokens: number, ideaId?: string, parse?: (text: string) => any) {
-  const started = Date.now(), errors: string[] = [];
-  for (const model of radarModels()) {
-    try {
-      // Reasoning off: the free Nemotrons otherwise think aloud in the text and run out of tokens before the JSON.
-      const msg = await claude.messages.create({ model, max_tokens, system, thinking: { type: 'disabled' }, messages: [{ role: 'user', content: user }] });
-      const text = msg.content.flatMap(b => b.type === 'text' ? [b.text] : []).join('');
-      if (!text.trim()) { errors.push(`${model}: empty reply`); continue; }
-      let parsed, unreadable = false;
-      try { parsed = parse?.(text); } catch { unreadable = true; }   // broken JSON from one model: record it, then try the next
-      const { data } = await trace.db.from('radar_ai_steps').insert({ run_id: trace.runId, user_id: trace.userId, idea_id: ideaId ?? null, step, model,
-        input: `${system}\n\n---\n\n${user}`, output: text, ms: Date.now() - started, error: errors.join('; ') || null, checks: unreadable ? { parse_error: true } : {} }).select('id').single();
-      if (unreadable) { errors.push(`${model}: unreadable reply`); continue; }
-      return { text, parsed, stepId: data?.id as string | undefined };
-    } catch (cause) {
-      const status = (cause as { status?: number }).status;
-      errors.push(`${model}: ${status ?? ''} ${cause instanceof Error ? cause.message.slice(0, 160) : 'failed'}`);
-      if (status === 401 || status === 402) break;   // the key itself is the problem; other models will fail the same way
-    }
-  }
-  await trace.db.from('radar_ai_steps').insert({ run_id: trace.runId, user_id: trace.userId, idea_id: ideaId ?? null, step, input: `${system}\n\n---\n\n${user}`, error: errors.join('; '), ms: Date.now() - started });
-  throw new JobError(errors.some(e => / 401 /.test(e)) ? 'The AI key was refused (expired or wrong). Update it, then try again.'
-    : errors.some(e => e.endsWith('unreadable reply')) ? 'The AI replies were not readable. Try again.' : 'No AI model answered. Try again later.');
-}
-
-const CLUSTER = `You group a week of YouTube videos and news into video topics for one creator. Reply with JSON only:
-{"topics":[{"name":"","summary":"","angle":"","keywords":[""],"query":"","bucket":null,"video_ids":[""],"news_urls":[""]}]}
-Rules:
-- 4 to 10 topics. Each is a concrete event, decision or question (not a broad theme), named in plain English.
-- A topic needs at least two pieces of evidence (videos or news) from different sources. One viral video alone is noise.
-- summary: one or two sentences on what happened, using only the listed headlines and titles. Never add facts.
-- angle: how this creator could explain it, in their lenses (the buckets). One sentence.
-- keywords: 2 to 5 short search phrases a viewer would type (English or Hinglish). query: the best one for a YouTube search.
-- bucket: the creator bucket it fits, copied exactly, or null.
-- Skip routine market prices, exam results, sport, celebrity gossip and anything already saved or dropped.
-- video_ids and news_urls must be copied exactly from the lists.`;
-
-function parseJson(text: string): any {
-  const start = text.indexOf('{'), end = text.lastIndexOf('}');
-  if (start < 0 || end < start) throw new JobError('The AI reply had no topics in it. Try again.');
-  try { return JSON.parse(text.slice(start, end + 1)); } catch { throw new JobError('The AI reply was not readable. Try again.'); }
-}
-
 // The server's checks on the model's topics. Every drop and every invented citation is reported, so the
 // monitoring record shows how much of the model's answer survived and why.
 export function cleanTopics(raw: any, vids: Map<string, Video>, urls: Set<string>, buckets: string[]) {
@@ -237,6 +182,8 @@ export function cleanTopics(raw: any, vids: Map<string, Video>, urls: Set<string
 
 // ---------- runs ----------
 
+type Trace = { db: SupabaseClient; runId: string; userId: string };
+
 async function profileFor(db: SupabaseClient, spend: Spend, userId: string): Promise<Profile> {
   const { data, error } = await db.from('radar_profiles').select('*').eq('user_id', userId).maybeSingle();
   if (error) throw error;
@@ -250,14 +197,11 @@ async function profileFor(db: SupabaseClient, spend: Spend, userId: string): Pro
   return p;
 }
 
-async function scan(db: SupabaseClient, claude: Anthropic | null, trace: Trace, spend: Spend) {
-  const userId = trace.userId;
-  if (!claude) throw new JobError('The AI provider is not set up, so ideas cannot be grouped.');
-  const p = await profileFor(db, spend, userId);
-  const { data: known } = await db.from('radar_ideas').select('slug,name,status,metrics').eq('user_id', userId).in('status', ['saved', 'dropped', 'archived']);
-  const kept = known ?? [];
-
-  // Signals: a week of videos and three days of news per seed topic.
+// Collects a week of videos and three days of news per seed topic and stores the pool on the run.
+// Grouping it into ideas is the creator's Claude's job: get_radar_run, then save_radar_ideas.
+async function scan(db: SupabaseClient, trace: Trace, spend: Spend) {
+  const p = await profileFor(db, spend, trace.userId);
+  const { data: known } = await db.from('radar_ideas').select('name').eq('user_id', trace.userId).in('status', ['saved', 'dropped', 'archived']);
   const byId = new Map<string, Video>(), items: News[] = [], bySeed: Record<string, { video_ids: string[]; news_urls: string[] }> = {};
   for (const seed of p.seeds) {
     const found = bySeed[seed] = { video_ids: [] as string[], news_urls: [] as string[] };
@@ -266,26 +210,26 @@ async function scan(db: SupabaseClient, claude: Anthropic | null, trace: Trace, 
   }
   const vids = [...byId.values()];
   await enrich(spend, vids, p.channel!.subs);
-  // The whole pool, saved before the AI step so even a failed run can be redone by a reviewer over MCP.
-  const raw: Record<string, unknown> = { seeds: bySeed, videos: vids, news: items };
-  await db.from('radar_runs').update({ raw }).eq('id', trace.runId);
-  const shown = vids.sort((a, b) => (b.x ?? 0) - (a.x ?? 0) || b.vph! - a.vph!).slice(0, 60);
-  const prompt = [
-    `Creator: ${p.channel!.name} (${p.channel!.subs} subscribers, ${p.format === 'shorts' ? 'Shorts' : p.format === 'long' ? 'long videos' : 'Shorts and long videos'}, region ${p.region}).`,
-    `Buckets: ${p.buckets.join('; ') || 'none'}`,
-    `Their recent titles: ${p.channel!.titles.slice(0, 25).join(' | ')}`,
-    `Already saved or dropped (skip): ${kept.map(k => k.name).join(' | ') || 'none'}`,
-    '', 'VIDEOS (id | title | channel | views | x = views vs that channel\'s median | days old)',
-    ...shown.map(v => `${v.id} | ${v.title} | ${v.channel} | ${v.views} | ${v.x ?? '-'} | ${Math.round(v.age_h / 24)}`),
-    '', 'NEWS (url | headline | source | date)',
-    ...items.slice(0, 60).map(n => `${n.url} | ${n.title} | ${n.source} | ${n.date}`),
-  ].join('\n');
-  const reply = await ask(claude, trace, 'cluster', CLUSTER, prompt, 6000, undefined, parseJson);
-  const cleaned = cleanTopics(reply.parsed, byId, new Set(items.map(i => i.url)), p.buckets);
-  const topics = cleaned.topics.filter(t => !kept.some(k => k.slug === t.slug));
-  cleaned.checks.dropped.push(...cleaned.topics.filter(t => !topics.includes(t)).map(t => ({ name: t.name, reason: 'already saved or dropped' })));
-  await db.from('radar_ai_steps').update({ checks: { ...cleaned.checks, kept: topics.length, videos_shown: shown.length, news_shown: Math.min(items.length, 60) } }).eq('id', reply.stepId);
-  if (!topics.length) throw new JobError('No topic had evidence from two or more sources this week. Try broader topics.');
+  vids.sort((a, b) => (b.x ?? 0) - (a.x ?? 0) || b.vph! - a.vph!);
+  const creator = { channel: p.channel!.name, subscribers: p.channel!.subs, format: p.format, region: p.region, buckets: p.buckets, recent_titles: p.channel!.titles.slice(0, 25), skip_saved_or_dropped: (known ?? []).map(k => k.name) };
+  await db.from('radar_runs').update({ raw: { creator, seeds: bySeed, videos: vids, news: items } }).eq('id', trace.runId);
+  return { videos: vids.length, news: items.length, youtube_units: spend.units, next: 'Ask your Claude to turn this scan into ideas.' };
+}
+
+// Called by the creator's Claude over MCP with the topics it grouped from a scan's pool. The server drops any
+// topic without two collected sources, scores the rest (14-day search, Google Trends) and replaces last week's new ideas.
+export async function saveIdeas(db: SupabaseClient, userId: string, runId: string, input: unknown) {
+  const { data: run } = await db.from('radar_runs').select('kind,status,raw,summary').eq('id', runId).eq('user_id', userId).maybeSingle();
+  const raw = run?.raw as { videos?: Video[]; news?: News[] } | null;
+  if (!run || run.kind !== 'scan' || run.status !== 'done' || !raw?.videos) throw new JobError('That is not a finished scan. Call list_radar_runs and use a scan whose status is done.');
+  const spend = new Spend(SCAN_CAP_MICRO);
+  const p = await profileFor(db, spend, userId);
+  const byId = new Map(raw.videos.map(v => [v.id, v])), items = raw.news ?? [];
+  const { data: known } = await db.from('radar_ideas').select('slug').eq('user_id', userId).in('status', ['saved', 'dropped', 'archived']);
+  const cleaned = cleanTopics(input, byId, new Set(items.map(i => i.url)), p.buckets);
+  const topics = cleaned.topics.filter(t => !(known ?? []).some(k => k.slug === t.slug));
+  const dropped = [...cleaned.checks.dropped, ...cleaned.topics.filter(t => !topics.includes(t)).map(t => ({ name: t.name, reason: 'already saved, dropped or archived' }))];
+  if (!topics.length) throw new JobError(`No topic was kept. Each needs two or more videos/headlines copied exactly from the pool. Dropped: ${JSON.stringify(dropped)}`);
 
   // Score: a fresh 14-day search per topic (saturation), Google Trends for the strongest six (SerpApi's free plan is small).
   const scored = [];
@@ -300,24 +244,25 @@ async function scan(db: SupabaseClient, claude: Anthropic | null, trace: Trace, 
   }
   scored.sort((a, b) => topicScore(b.m) - topicScore(a.m));
   for (const s of scored.slice(0, 6)) s.m.slope = await slope(s.t.keywords, p.region);
-  await db.from('radar_runs').update({ raw: { ...raw, scoring: scored.map(s => ({ topic: s.t.name, query: s.t.query, slope: s.m.slope, search_14d: s.found })) } }).eq('id', trace.runId);
+  await db.from('radar_runs').update({ raw: { ...raw, scoring: scored.map(s => ({ topic: s.t.name, query: s.t.query, slope: s.m.slope, search_14d: s.found })) } }).eq('id', runId);
 
-  // A scan replaces last week's undecided ideas; saved and dropped ones stay.
+  // A scan replaces last week's undecided ideas; saved, dropped and archived ones stay.
   await db.from('radar_ideas').delete().eq('user_id', userId).eq('status', 'new');
   const rows = scored.map(({ t, m, vs }) => ({
-    user_id: userId, run_id: trace.runId, slug: t.slug, name: t.name, summary: t.summary, angle: t.angle, keywords: t.keywords, query: t.query, bucket: t.bucket,
+    user_id: userId, run_id: runId, slug: t.slug, name: t.name, summary: t.summary, angle: t.angle, keywords: t.keywords, query: t.query, bucket: t.bucket,
     status: 'new', label: label(m), score: topicScore(m), metrics: m, updated_at: new Date().toISOString(),
     evidence: [
       ...vs.map(v => ({ kind: 'video', title: v.title, url: v.url, source: v.channel, date: `${Math.round(v.age_h / 24)} days ago`, views: v.views, x: v.x })),
       ...t.news_urls.map(u => items.find(i => i.url === u)!).map(n => ({ kind: isPrimary(n.url, p.region) ? 'document' : 'news', title: n.title, url: n.url, source: n.source, date: n.date })),
     ],
   }));
-  const { error } = await db.from('radar_ideas').insert(rows);
+  const { data: saved, error } = await db.from('radar_ideas').insert(rows).select('id,name,label,score');
   if (error) throw error;
-  return { ideas: rows.length, videos: vids.length, news: items.length, youtube_units: spend.units };
+  await db.from('radar_runs').update({ summary: { ...(run.summary as object), ideas: rows.length }, cost_micro: spend.micro }).eq('id', runId);
+  return { saved: rows.length, ideas: saved ?? [], dropped, invented_citations: cleaned.checks.invented_citations };
 }
 
-async function watch(db: SupabaseClient, claude: Anthropic | null, trace: Trace, spend: Spend) {
+async function watch(db: SupabaseClient, trace: Trace, spend: Spend) {
   const userId = trace.userId;
   const p = await profileFor(db, spend, userId);
   const { data: ideas, error } = await db.from('radar_ideas').select('id,name,query,keywords,last_checked,metrics').eq('user_id', userId).eq('status', 'saved')
@@ -341,14 +286,7 @@ async function watch(db: SupabaseClient, claude: Anthropic | null, trace: Trace,
     found += fresh.length;
     const previous = (idea.metrics as { watch?: { news: number; videos: number } }).watch;
     const direction = !previous ? '' : items.length + vids.length > previous.news + previous.videos ? ' Coverage is picking up.' : items.length + vids.length < previous.news + previous.videos ? ' Coverage is slowing down.' : '';
-    let note = fresh.length ? `${fresh.length} new: ${count(fresh, 'document')} official documents, ${count(fresh, 'news')} reports, ${count(fresh, 'video')} videos.${direction}` : `Nothing new since the last check.${direction}`;
-    if (fresh.length && claude) {
-      try {
-        const { text } = await ask(claude, trace, 'change_note', 'You tell a YouTube creator, in one or two plain sentences, what is new about a story they are watching. Use only the headlines given. Say if an official document or court order appeared. No preamble.',
-          `Story: ${idea.name}\nNew items:\n${fresh.map(f => `- [${f.kind}] ${f.title} (${f.source})`).join('\n')}`, 300, idea.id);
-        if (text.trim()) note = `${text.trim().slice(0, 500)}${direction}`;
-      } catch (cause) { console.warn('radar: change note', cause instanceof Error ? cause.message : cause); }   // the counts stand in
-    }
+    const note = fresh.length ? `${fresh.length} new: ${count(fresh, 'document')} official documents, ${count(fresh, 'news')} reports, ${count(fresh, 'video')} videos.${direction}` : `Nothing new since the last check.${direction}`;
     await db.from('radar_ideas').update({ change_note: note, last_checked: new Date().toISOString(),
       metrics: { ...(idea.metrics as object), watch: { news: items.length, videos: vids.length } } }).eq('id', idea.id);
   }
@@ -380,7 +318,7 @@ async function claim(db: SupabaseClient) {
   return run as { id: string; user_id: string; kind: 'scan' | 'watch' } | null;
 }
 
-export async function runRadar(db: SupabaseClient, claude: Anthropic | null, signal: AbortSignal) {
+export async function runRadar(db: SupabaseClient, signal: AbortSignal) {
   // ponytail: assumes a single worker, like the video job loop; a run left "running" by a restart is failed.
   await db.from('radar_runs').update({ status: 'failed', error: 'Interrupted by a server restart. Please try again.', finished_at: new Date().toISOString() }).eq('status', 'running');
   let nextSchedule = 0;
@@ -393,7 +331,7 @@ export async function runRadar(db: SupabaseClient, claude: Anthropic | null, sig
       console.log(`radar ${run.kind} ${run.id} started`);
       try {
         const trace = { db, runId: run.id, userId: run.user_id };
-        const summary = { ...(run.kind === 'scan' ? await scan(db, claude, trace, spend) : await watch(db, claude, trace, spend)), models: radarModels() };
+        const summary = run.kind === 'scan' ? await scan(db, trace, spend) : await watch(db, trace, spend);
         await db.from('radar_runs').update({ status: 'done', summary, cost_micro: spend.micro, finished_at: new Date().toISOString() }).eq('id', run.id);
         console.log(`radar ${run.kind} ${run.id} done`, summary, `$${(spend.micro / 1e6).toFixed(3)}`);
       } catch (cause) {

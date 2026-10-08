@@ -27,7 +27,7 @@ import {
 } from './project-files.ts';
 import { BREAKDOWN_SCHEMA } from './schemas.ts';
 import { cardSlots, syncStyle } from './style-files.ts';
-import { onTopic } from './radar.ts';
+import { onTopic, saveIdeas } from './radar.ts';
 import { probe, ticketFor } from './transcribe.ts';
 import { makeStoryboard, readStoryboard, StoryboardError } from './storyboard.ts';
 import { checkBlock, estimateUsd, MODELS, promptBlocks, referencesOf, sendable, shotsFromCuts } from './video-prompts.ts';
@@ -50,8 +50,8 @@ recording, or around music alone): direction + references -> transcript -> sound
 read get_guide("studio") first. A project may use one of the creator's saved styles (get_project says which; read it with get_style). Start with list_projects / get_project (it says the track). Before writing a script, breakdown, composition or blockout, read get_guide for that topic: it is the
 platform's own playbook and changes with the site. Everything you save appears live in the creator's Playground. Saves are validated; when one
 is refused the message says what to fix. Never invent metrics or results for the creator.
-Trends & News (Radar): weekly video ideas and a daily watch of saved stories, written by a free model. To re-evaluate that work, read
-get_guide("radar"), then list_radar_runs / get_radar_run and leave a review per idea with review_radar_idea.
+Trends & News (Radar): the server collects a week of videos and headlines; YOU group them into video ideas and the server scores them. Read
+get_guide("radar"), then list_radar_runs / get_radar_run, save the ideas with save_radar_ideas and review them with review_radar_idea.
 Planner: to outline a planned video (sections and talking points from its sources, in the creator's style), read get_guide("outline"),
 then list_plan_items / get_plan_item, and save it with save_outline.`;
 
@@ -965,11 +965,11 @@ The first run downloads whisper.cpp and the speech model (~1.6 GB) into a cache,
       return ok({ saved: true, path, hash: sha256(text) }, 'Saved; the creator sees it on the site under Style.');
     }));
 
-    // ---- Radar (Trends & News): the monitoring record of the free model's work, and reviews of it.
+    // ---- Radar (Trends & News): the collected pool, the ideas the creator's Claude groups from it, and reviews.
     const runId = z.string().regex(UUID).describe('Run id from list_radar_runs.');
     server.registerTool('list_radar_runs', {
       title: 'List Radar runs',
-      description: 'Recent Radar runs (weekly idea scans and daily checks of saved stories): status, what they found, cost, and which AI models answered. Read get_guide("radar") before reviewing one.',
+      description: 'Recent Radar runs (weekly scans that collect videos and headlines, and daily checks of saved stories): status, what they found and cost. A done scan with no ideas yet is waiting for you: read get_guide("radar").',
       annotations: read,
     }, guarded('list_radar_runs', async () => {
       const { data, error } = await db.from('radar_runs').select('id,kind,status,error,summary,cost_micro,created_at,finished_at').eq('user_id', user).order('created_at', { ascending: false }).limit(20);
@@ -982,7 +982,7 @@ The first run downloads whisper.cpp and the speech model (~1.6 GB) into a cache,
 
     server.registerTool('get_radar_run', {
       title: 'Read a Radar run',
-      description: `One Radar run in full: every AI step with its exact input (the videos and headlines the model saw), its raw reply, the model that answered and what the server's checks kept or dropped; run.raw, the whole pool the scan collected (every video and headline per seed, including those not shown to the model, and each topic's 14-day scoring search) so you can redo the grouping yourself; plus the ideas the run produced with their evidence, metrics, the creator's decision and earlier reviews.`,
+      description: `One Radar run in full: run.raw is the pool a scan collected (creator context, every video with views and outlier multiple x, every headline, per seed) to group into ideas with save_radar_ideas, plus each saved topic's 14-day scoring search; and the ideas the run produced with their evidence, metrics, the creator's decision and earlier reviews.`,
       inputSchema: z.object({ run_id: runId }),
       annotations: read,
     }, guarded('get_radar_run', async ({ run_id }) => {
@@ -997,9 +997,32 @@ The first run downloads whisper.cpp and the speech model (~1.6 GB) into a cache,
       return ok({ run, ai_steps: steps ?? [], ideas: (ideas ?? []).map(i => ({ ...i, reviews: (reviews ?? []).filter(r => r.idea_id === i.id) })) });
     }));
 
+    server.registerTool('save_radar_ideas', {
+      title: 'Save Radar ideas from a scan',
+      description: `Group a finished scan's pool into 4 to 10 video ideas and save them for the creator. Read get_guide("radar") and get_radar_run first. Every video_ids / news_urls entry must be copied exactly from run.raw; a topic with fewer than two is dropped. The server scores them and replaces last week's undecided ideas; saved, dropped and archived ones stay.`,
+      inputSchema: z.object({
+        run_id: runId,
+        topics: z.array(z.object({
+          name: z.string().max(120).describe('A concrete event, decision or question in plain English.'),
+          summary: z.string().max(600).describe('One or two sentences using only the listed titles and headlines.'),
+          angle: z.string().max(400).describe('How this creator could explain it, in their buckets.'),
+          keywords: z.array(z.string().max(60)).min(1).max(5),
+          query: z.string().max(100).describe('The best YouTube search for it.'),
+          bucket: z.string().nullable().describe('One of creator.buckets, copied exactly, or null.'),
+          video_ids: z.array(z.string()),
+          news_urls: z.array(z.string()),
+        })).min(1).max(12),
+        request_id: requestId,
+      }),
+      annotations: write,
+    }, guarded('save_radar_ideas', async ({ run_id, topics }) => {
+      try { return ok(await saveIdeas(db, user, run_id, { topics }), 'Saved; the creator sees the ideas under Trends & News.'); }
+      catch (e) { if (e instanceof JobError) return refuse(e.message); throw e; }
+    }));
+
     server.registerTool('review_radar_idea', {
       title: 'Review a Radar idea',
-      description: `Leave your review of one idea the free model produced: keep, fix (with the corrected name, summary or angle) or drop, with short notes for the creator. It shows on the idea card. It never changes the creator's decision.`,
+      description: `Leave your review of one Radar idea (yours or an earlier one): keep, fix (with the corrected name, summary or angle) or drop, with short notes for the creator. It shows on the idea card. It never changes the creator's decision.`,
       inputSchema: z.object({
         idea_id: z.string().regex(UUID).describe('Idea id from get_radar_run.'),
         verdict: z.enum(['keep', 'fix', 'drop']),
