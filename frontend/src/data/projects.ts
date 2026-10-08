@@ -30,9 +30,19 @@ export async function createProject(name: string, track: Track): Promise<Project
 }
 
 export async function updateProject(id: string, fields: Partial<Pick<Project, 'name' | 'script' | 'direction' | 'beat_plan' | 'style_id'>>): Promise<Project> {
+  if ('script' in fields) throw new Error('Use the version-checked script save command.');
   const { data, error } = await client().from('projects').update({ ...fields, updated_at: now() }).eq('id', id).select(COLUMNS).single();
   if (error) throw new Error('Could not save the project. Please try again.');
   return data;
+}
+
+export async function saveProjectScript(id:string,script:string,expectedScript:string):Promise<Project>{
+  const digest=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(expectedScript));
+  const expected_hash=[...new Uint8Array(digest)].map(byte=>byte.toString(16).padStart(2,'0')).join('');
+  const {data,error}=await client().rpc('save_project_script',{p_user:(await client().auth.getUser()).data.user?.id,p_project:id,p_expected_hash:expected_hash,p_script:script});
+  if(error?.message==='version_conflict')throw new Error('The project script changed. Refresh the project, then apply your edit to the current script.');
+  if(error||!data?.project)throw new Error('Could not save the project script. Please try again.');
+  return data.project as Project;
 }
 
 export async function deleteProject(id: string): Promise<void> {

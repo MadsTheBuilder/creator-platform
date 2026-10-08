@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type ChangeEvent } from 'react';
 import { MusicNotes, Trash, UploadSimple, X } from '@phosphor-icons/react';
 import { api, safeName, uploadFile } from '../../data/app-server';
 import { useAppServer, usePolled, useProjectChanges } from '../../data/hooks';
-import { updateProject, type Project } from '../../data/projects';
+import { updateProject,saveProjectScript, type Project } from '../../data/projects';
 import { listStyles, type Style } from '../../data/styles';
 import { clock, transcriptLines, type Word } from '../../data/transcript';
 import { active, latestJob, queueJob, type TranscribeJob } from '../../data/video-jobs';
@@ -82,7 +82,7 @@ export function Direct({ project, onSaved }: { project: Project; onSaved: (p: Pr
     setBusy(true);
     try {
       const name = await send(file, 'recording.mp4');
-      if (script !== project.script) onSaved(await updateProject(project.id, { script }));
+      if (script !== project.script) onSaved(await saveProjectScript(project.id,script,project.script));
       const [lang, writing] = language.split(':');
       setJob(await queueJob<TranscribeJob>('transcribe', { file: name, language: lang, writing }, project.id));
     } catch (e) { setError((e as Error).message); } finally { setBusy(false); }
@@ -102,6 +102,11 @@ export function Direct({ project, onSaved }: { project: Project; onSaved: (p: Pr
     setSaving(true); setError('');
     try { onSaved(await updateProject(project.id, fields)); }
     catch (e) { setError((e as Error).message); } finally { setSaving(false); }
+  }
+  async function saveScript(){
+    setSaving(true);setError('');
+    try{onSaved(await saveProjectScript(project.id,script,project.script));}
+    catch(e){setError((e as Error).message);}finally{setSaving(false);}
   }
   async function uploadRefs(event: ChangeEvent<HTMLInputElement>) {
     const files = Array.from(event.target.files ?? []);
@@ -172,6 +177,7 @@ export function Direct({ project, onSaved }: { project: Project; onSaved: (p: Pr
       <label className="recording-language">Spoken language<select value={language} onChange={e => setLanguage(e.target.value)}>{LANGUAGES.map(l => <option key={l.value} value={l.value}>{l.label}</option>)}</select></label>
       <label>Your script (optional)<textarea rows={4} maxLength={60000} value={script} onChange={e => setScript(e.target.value)}
         placeholder="Paste what you say, if you wrote it down. It's saved before the upload and helps spell names your way, in your writing (Roman or Devanagari)."/></label>
+      <Button disabled={saving||script===project.script} onClick={()=>void saveScript()}>Save script</Button>
       {progress !== null && <div role="status" className="upload-progress"><progress max={1} value={progress}/> Uploading… {Math.round(progress * 100)}%</div>}
       {active(job) && <Notice><span role="status">{waiting}</span>{!job!.output && <Button onClick={cancel}><X size={16}/>Cancel</Button>}</Notice>}
       {job?.status === 'failed' && <p role="alert">{job.error}</p>}

@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type ChangeEvent, type ClipboardEvent, type FormEvent } from 'react';
 import { UploadSimple } from '@phosphor-icons/react';
 import { usePolled } from '../../data/hooks';
-import { updateProject, type Project } from '../../data/projects';
+import { saveProjectScript, type Project } from '../../data/projects';
 import { active, latestJob, queueJob, type ScriptJob } from '../../data/video-jobs';
 import { Button, Notice } from '../../components/ui';
 
@@ -22,7 +22,7 @@ export function Script({ project, onSaved, onShots }: { project: Project; onSave
 
   async function save(script = text) {
     setBusy(true); setError('');
-    try { onSaved(await updateProject(project.id, { script })); setText(script); return true; }
+    try { onSaved(await saveProjectScript(project.id,script,project.script)); setText(script); return true; }
     catch (e) { setError((e as Error).message); return false; } finally { setBusy(false); }
   }
 

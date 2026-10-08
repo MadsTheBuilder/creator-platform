@@ -34,3 +34,8 @@ Thumbs.db
 # App server project files (local dev)
 worker/data/
 *.tsbuildinfo
+test-results/
+playwright-report/
+
+# Local presentation decks (creator footage frames)
+presentation/

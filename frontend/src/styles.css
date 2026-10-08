@@ -519,6 +519,7 @@ meter::-moz-meter-bar{border-radius:99px;background:var(--orange)}
 .plan-dialog input[type=date],.plan-dialog input[type=time]{color-scheme:dark}
 .plan-fields{display:grid;grid-template-columns:1fr 1fr;gap:12px}
 .plan-hint{font-size:.75rem}
+.plan-outline pre{white-space:pre-wrap;max-height:50vh;overflow:auto;font:inherit;font-size:.85rem;margin:.5rem 0 0}
 .plan-extra{display:flex;flex-wrap:wrap;gap:8px;padding-top:12px;border-top:1px solid var(--rim)}
 .plan-matches{display:flex;flex-direction:column;gap:8px}
 .plan-matches p{font-size:.8125rem}

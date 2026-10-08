@@ -13,6 +13,8 @@ export type Post = { platform: Platform; id: string; url: string | null; title: 
 export type PlanItem = {
   id: string; title: string; notes: string; platform: Platform | null; format: Format | null; status: Status;
   scheduled_on: string | null; scheduled_time: string | null; project_id: string | null; post: Post | null; created_at: string;
+  // The Trends & News idea it came from, and the outline the creator's own Claude or Codex saved over MCP (save_outline).
+  radar_idea_id: string | null; outline: string | null; outline_at: string | null;
   // Linked Playground project's progress, filled in by listPlan.
   progress?: Progress;
 };
@@ -23,7 +25,7 @@ export const progressLabel = (p: Progress) => p.track === 'studio'
   : p.breakdown ? 'Breakdown ✓' : p.script ? 'Script ✓' : 'In Playground';
 export type PlanFields = Partial<Pick<PlanItem, 'title' | 'notes' | 'platform' | 'format' | 'status' | 'scheduled_on' | 'scheduled_time' | 'project_id' | 'post'>>;
 
-const COLUMNS = 'id,title,notes,platform,format,status,scheduled_on,scheduled_time,project_id,post,created_at';
+const COLUMNS = 'id,title,notes,platform,format,status,scheduled_on,scheduled_time,project_id,post,created_at,radar_idea_id,outline,outline_at';
 function client() { if (!supabase) throw new Error('Sign-in has not been configured for this installation.'); return supabase; }
 const now = () => new Date().toISOString();
 
@@ -53,9 +55,9 @@ export async function linkedProjects(): Promise<Map<string, string>> {
   return new Map(data.map(i => [i.project_id as string, i.title]));
 }
 
-export async function createItem(fields: PlanFields & { title: string }): Promise<PlanItem> {
+export async function createItem(fields: PlanFields & { title: string; radar_idea_id?: string }): Promise<PlanItem> {
   const { data, error } = await client().from('plan_items').insert({ ...fields, title: fields.title.trim() }).select(COLUMNS).single();
-  if (error) throw new Error('Could not add this to your plan. Please try again.');
+  if (error) throw new Error(error.code === '23505' && fields.radar_idea_id ? 'This idea is already in your Planner.' : 'Could not add this to your plan. Please try again.');
   return data as PlanItem;
 }
 

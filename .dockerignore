@@ -5,3 +5,8 @@
 .git
 supabase
 docs
+private-notes
+**/test-results
+**/playwright-report
+**/.cache
+.codebase-memory

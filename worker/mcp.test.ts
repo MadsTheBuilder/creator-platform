@@ -1,6 +1,7 @@
 // Contract test: a real MCP client (2026-07-28 and 2025-era) against the real tools, with an in-memory Supabase
 // and a scratch DATA_DIR. Run: npm test (in worker/).
 import assert from 'node:assert/strict';
+import {createHash} from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -32,7 +33,7 @@ function fakeDb(tables: Record<string, Row[]>) {
       return out.slice(0, limit);
     };
     const q: any = {
-      select: () => q, eq: (k: string, v: unknown) => (filters.push(r => r[k] === v), q), gt: (k: string, v: any) => (filters.push(r => r[k] > v), q),
+      select: () => q, eq: (k: string, v: unknown) => (filters.push(r => r[k] === v), q), neq: (k: string, v: unknown) => (filters.push(r => r[k] !== v), q), gt: (k: string, v: any) => (filters.push(r => r[k] > v), q),
       lt: (k: string, v: any) => (filters.push(r => r[k] < v), q), in: (k: string, v: unknown[]) => (filters.push(r => v.includes(r[k])), q),
       order: (k: string, o?: { ascending?: boolean }) => (order = [k, o?.ascending ?? true], q), limit: (n: number) => (limit = n, q),
       insert: (row: Row | Row[]) => (action = 'insert', payload = row, q), update: (row: Row) => (action = 'update', payload = row, q), delete: () => (action = 'delete', q),
@@ -42,7 +43,15 @@ function fakeDb(tables: Record<string, Row[]>) {
     };
     return q;
   };
-  return { from } as any;
+  return { from,rpc:async(name:string,args:any)=>{
+    if(name!=='save_project_script')return {data:null,error:{message:'unsupported_operation'}};
+    const project=(tables.projects??[]).find(p=>p.id===args.p_project&&p.user_id===args.p_user);
+    if(!project)return {data:null,error:{message:'not_found'}};
+    const current=createHash('sha256').update(project.script).digest('hex');
+    if(current!==args.p_expected_hash)return {data:null,error:{message:'version_conflict'}};
+    project.script=args.p_script;project.updated_at=new Date().toISOString();
+    return {data:{project,script_hash:createHash('sha256').update(project.script).digest('hex')},error:null};
+  }} as any;
 }
 
 const ME = crypto.randomUUID(), SOMEONE = crypto.randomUUID(), MINE = crypto.randomUUID(), THEIRS = crypto.randomUUID();
@@ -81,11 +90,41 @@ for (const mode of ['modern', 'legacy'] as const) {
       'seed_composition', 'get_composition', 'save_composition', 'list_references', 'create_upload_url', 'queue_blockout', 'get_job', 'get_blockout', 'make_storyboard', 'get_storyboard',
       'analyze_video', 'save_prompts', 'prepare_generation', 'import_take',
       'get_transcript', 'transcribe_recording', 'fix_transcript', 'save_plan', 'analyze_beats', 'snapshot', 'snapshot_board', 'get_board',
-      'list_styles', 'get_style', 'create_style', 'save_style_file']);
+      'list_styles', 'get_style', 'create_style', 'save_style_file', 'list_radar_runs', 'get_radar_run', 'review_radar_idea', 'list_plan_items', 'get_plan_item', 'save_outline']);
+    assert.equal(tools.some(t => t.name === 'confirm_creator_profile'), false);
     assert.ok(tools.every(t => t.description && t.annotations));
     await client.close();
   });
 }
+
+test('a planned Radar topic carries its sources, and its outline is saved for the Planner', async () => {
+  const RUN = crypto.randomUUID(), IDEA = crypto.randomUUID(), ITEM = crypto.randomUUID(), OTHER = crypto.randomUUID();
+  tables.radar_runs = [{ id: RUN, user_id: ME, raw: {
+    videos: [{ title: 'Supreme Court on Gyanesh Kumar: Will He Be Removed?' }, { title: 'Pakistan new submarine' }],
+    news: [{ title: 'Supreme court refuses interim suspension of CEC Gyanesh Kumar', url: 'https://newsonair.gov.in/x' }, { title: 'RBI raises repo rate', url: 'https://x.test/rbi' }] } }];
+  tables.radar_ideas = [{ id: IDEA, user_id: ME, run_id: RUN, name: 'Supreme Court refuses to suspend CEC Gyanesh Kumar', keywords: ['Gyanesh Kumar Supreme Court'], evidence: [] }];
+  tables.radar_updates = []; tables.radar_reviews = []; tables.radar_profiles = [];
+  tables.plan_items = [
+    { id: ITEM, user_id: ME, title: 'CEC hearing', notes: '', status: 'idea', radar_idea_id: IDEA, outline: null, created_at: '2026-10-08T00:00:00Z' },
+    { id: OTHER, user_id: SOMEONE, title: 'Not mine', notes: '', status: 'idea', radar_idea_id: null, outline: null, created_at: '2026-10-08T00:00:00Z' },
+  ];
+  const client = await connect('modern');
+  const list = await call(client, 'list_plan_items');
+  assert.deepEqual(list.structuredContent.items.map((i: Row) => [i.id, i.from_trends]), [[ITEM, true]]);
+  const got = await call(client, 'get_plan_item', { plan_item_id: ITEM });
+  assert.equal(got.structuredContent.idea.name, tables.radar_ideas[0].name);
+  assert.deepEqual(got.structuredContent.related.news.map((n: Row) => n.url), ['https://newsonair.gov.in/x']);
+  assert.equal(got.structuredContent.related.videos.length, 1);
+
+  const outline = `# Gyanesh Kumar ko kaun hata sakta hai?\n\n## Sections\n\n### 1. Hook (0:00-0:40)\n- The court refused an interim suspension [AIR]\n${'- point\n'.repeat(30)}`;
+  assert.equal((await call(client, 'save_outline', { plan_item_id: ITEM, outline: outline.replace(/^## /gm, '') })).isError, true);
+  assert.equal((await call(client, 'save_outline', { plan_item_id: OTHER, outline })).isError, true);
+  const saved = await call(client, 'save_outline', { plan_item_id: ITEM, outline });
+  assert.equal(saved.structuredContent.saved, true);
+  assert.equal(tables.plan_items[0].outline, outline.trim());
+  assert.equal(tables.plan_items[1].outline, null);
+  await client.close();
+});
 
 test('only the caller\'s projects', async () => {
   const client = await connect('modern');
@@ -137,7 +176,7 @@ test('a saved breakdown is what the site reads', async () => {
 test('saves refuse stale versions', async () => {
   const client = await connect('modern');
   const project = await call(client, 'get_project', { project_id: MINE });
-  const stale = await call(client, 'save_script', { project_id: MINE, script: 'New', expected_script_hash: 'old' });
+  const stale = await call(client, 'save_script', { project_id: MINE, script: 'New', expected_script_hash: '0'.repeat(64) });
   assert.equal(stale.isError, true);
   const fresh = await call(client, 'save_script', { project_id: MINE, script: 'New', expected_script_hash: project.structuredContent.project.script_hash });
   assert.equal(fresh.structuredContent.saved, true);

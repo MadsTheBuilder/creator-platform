@@ -239,6 +239,9 @@ function ItemDialog({ editing, onClose, onSaved, onDeleted, onOpenProject }: { e
       <label>Status<select name="status" defaultValue={defaults.status}>{STATUSES.map(s => <option key={s.status} value={s.status}>{s.label}</option>)}</select></label>
       <label>Notes<textarea name="notes" rows={3} maxLength={5000} defaultValue={defaults.notes} placeholder="Angle, hook, references…"/></label>
       {!item && <p className="muted plan-hint">Leave the day empty to keep it in the Ideas inbox.</p>}
+      {item?.outline
+        ? <details className="plan-outline"><summary>Outline <span className="muted">· {new Date(item.outline_at!).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })}</span></summary><pre>{item.outline}</pre></details>
+        : item?.radar_idea_id && <p className="muted plan-hint">From Trends &amp; News. Ask your Claude or Codex to “outline my planned video {item.title}”, and the outline appears here.</p>}
       {item && <div className="plan-extra">
         {item.project_id
           ? <span className="plan-pair">

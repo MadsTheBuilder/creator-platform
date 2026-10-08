@@ -5,13 +5,14 @@ import { breakdown } from './breakdown.ts';
 import { JobError } from './job-error.ts';
 import { script } from './script.ts';
 import { startServer } from './server.ts';
+import { runRadar } from './radar.ts';
 
 const { SUPABASE_URL, SUPABASE_SECRET_KEY } = process.env;
-if (!SUPABASE_URL || !SUPABASE_SECRET_KEY || !(process.env.ANTHROPIC_API_KEY || process.env.ANTHROPIC_AUTH_TOKEN)) {
-  throw new Error('Set SUPABASE_URL, SUPABASE_SECRET_KEY and ANTHROPIC_API_KEY (or ANTHROPIC_AUTH_TOKEN).');
+if (!SUPABASE_URL || !SUPABASE_SECRET_KEY) {
+  throw new Error('Set SUPABASE_URL and SUPABASE_SECRET_KEY.');
 }
 const db = createClient(SUPABASE_URL, SUPABASE_SECRET_KEY, { auth: { persistSession: false, autoRefreshToken: false } });
-const claude = new Anthropic();
+const claude = process.env.ANTHROPIC_API_KEY || process.env.ANTHROPIC_AUTH_TOKEN ? new Anthropic() : null;
 // Blockouts and transcriptions are claimed by the creator's own computer (bridge/, or their Claude Code), never here.
 const KINDS = ['breakdown', 'script'];
 
@@ -22,6 +23,7 @@ async function finish(id: string, fields: { status: 'done' | 'failed'; output?: 
 
 // One job at a time. Returns false when the queue is empty.
 async function next(): Promise<boolean> {
+  if (!claude) return false;
   const { data, error } = await db.rpc('claim_video_job', { p_kinds: KINDS });
   if (error) throw error;
   const job = data?.[0];
@@ -45,6 +47,10 @@ await db.from('video_jobs').update(interrupted).eq('status', 'running').in('kind
 // Transcriptions this server was finishing, or whose Claude Code key (kept in memory) just died with it.
 await db.from('video_jobs').update(interrupted).eq('status', 'running').eq('kind', 'transcribe').or('input->>on.eq.claude,output->>stage.eq.converting');
 startServer(db, Number(process.env.PORT ?? 8787));
+const radarShutdown = new AbortController();
+process.once('SIGTERM', () => radarShutdown.abort());
+process.once('SIGINT', () => radarShutdown.abort());
+void runRadar(db, claude, radarShutdown.signal);
 console.log('video worker ready');
 for (;;) {
   try { if (!(await next())) await sleep(3000); }

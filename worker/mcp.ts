@@ -27,6 +27,7 @@ import {
 } from './project-files.ts';
 import { BREAKDOWN_SCHEMA } from './schemas.ts';
 import { cardSlots, syncStyle } from './style-files.ts';
+import { onTopic } from './radar.ts';
 import { probe, ticketFor } from './transcribe.ts';
 import { makeStoryboard, readStoryboard, StoryboardError } from './storyboard.ts';
 import { checkBlock, estimateUsd, MODELS, promptBlocks, referencesOf, sendable, shotsFromCuts } from './video-prompts.ts';
@@ -48,9 +49,13 @@ recording, or around music alone): direction + references -> transcript -> sound
 (snapshot_board; the creator's notes via get_board) -> HyperFrames build -> snapshot critique -> edit;
 read get_guide("studio") first. A project may use one of the creator's saved styles (get_project says which; read it with get_style). Start with list_projects / get_project (it says the track). Before writing a script, breakdown, composition or blockout, read get_guide for that topic: it is the
 platform's own playbook and changes with the site. Everything you save appears live in the creator's Playground. Saves are validated; when one
-is refused the message says what to fix. Never invent metrics or results for the creator.`;
+is refused the message says what to fix. Never invent metrics or results for the creator.
+Trends & News (Radar): weekly video ideas and a daily watch of saved stories, written by a free model. To re-evaluate that work, read
+get_guide("radar"), then list_radar_runs / get_radar_run and leave a review per idea with review_radar_idea.
+Planner: to outline a planned video (sections and talking points from its sources, in the creator's style), read get_guide("outline"),
+then list_plan_items / get_plan_item, and save it with save_outline.`;
 
-const TOPICS = ['breakdown', 'script', 'composition', 'blockout', 'studio', 'ai-video'] as const;
+const TOPICS = ['breakdown', 'script', 'composition', 'blockout', 'studio', 'ai-video', 'radar', 'outline'] as const;
 async function guide(topic: (typeof TOPICS)[number]) {
   const join_ = (parts: string[]) => parts.join('\n\n---\n\n');
   if (topic === 'breakdown') return join_(await Promise.all(['mcp-breakdown.md', ...BREAKDOWN_PROMPTS].map(prompt)));
@@ -59,6 +64,8 @@ Ask the creator for the idea, platform, target length and tone if they have not 
 save_script once they are happy: it replaces the project's script. A breakdown is made from the saved script.`]);
   if (topic === 'blockout') return prompt('blockout.md');
   if (topic === 'ai-video') return prompt('ai-video.md');
+  if (topic === 'radar') return prompt('radar.md');
+  if (topic === 'outline') return prompt('outline.md');
   const docs = await Promise.all(['compositions.md', 'data-attributes.md', 'gsap.md', 'troubleshooting.md'].map(f => readFile(join(HF_DOCS, f), 'utf8').catch(() => '')));
   return join_([...topic === 'studio' ? [await prompt('studio.md')] : [], await prompt('composition.md'), ...docs.filter(Boolean)]);
 }
@@ -216,7 +223,7 @@ export function createMcp(db: SupabaseClient) {
 
     server.registerTool('get_guide', {
       title: 'Read a playbook',
-      description: 'The platform\'s playbook for a step: how to write a script, a shot breakdown, a HyperFrames composition, or fields a Blender blockout understands. Read it before that step.',
+      description: 'The platform\'s playbook for a step: how to write a script, a shot breakdown, a HyperFrames composition, or fields a Blender blockout understands; "radar" is how to re-evaluate the Trends & News ideas; "outline" is how to outline a planned video. Read it before that step.',
       inputSchema: z.object({ topic: z.enum(TOPICS) }),
       annotations: read,
     }, guarded('get_guide', async ({ topic }) => { const text = await guide(topic); return { content: [{ type: 'text', text }], structuredContent: { topic, guide: text } }; }));
@@ -294,15 +301,13 @@ export function createMcp(db: SupabaseClient) {
     server.registerTool('save_script', {
       title: 'Save the script',
       description: 'Replace the project\'s script (what the Script step shows and the breakdown is made from). Pass expected_script_hash from get_project so a script the creator edited meanwhile is not overwritten.',
-      inputSchema: z.object({ project_id: projectId, script: z.string().min(1).max(60000), expected_script_hash: z.string().optional(), request_id: requestId }),
+      inputSchema: z.object({ project_id: projectId, script: z.string().min(1).max(60000), expected_script_hash: z.string().regex(/^[a-f0-9]{64}$/), request_id: requestId }),
       annotations: { ...write, idempotentHint: true },
     }, guarded('save_script', async ({ project_id, script, expected_script_hash }) => {
-      const { data: current } = await db.from('projects').select('script').eq('id', project_id).single();
-      const hash = sha256(current?.script ?? '');
-      if (expected_script_hash && expected_script_hash !== hash) return refuse(`The script changed since you read it (hash is now ${hash}). Call get_project, then apply your change to the current script.`);
-      const { error } = await db.from('projects').update({ script, updated_at: new Date().toISOString() }).eq('id', project_id).eq('user_id', user);
-      if (error) throw error;
-      return ok({ saved: true, script_hash: sha256(script) });
+      const {data,error}=await db.rpc('save_project_script',{p_user:user,p_project:project_id,p_expected_hash:expected_script_hash,p_script:script});
+      if(error?.message==='version_conflict')return refuse('The project script changed. Call get_project, then apply your edit to the current script.');
+      if(error)throw error;
+      return ok({saved:true,script_hash:data.script_hash});
     }));
 
     server.registerTool('get_breakdown', {
@@ -958,6 +963,118 @@ The first run downloads whisper.cpp and the speech model (~1.6 GB) into a cache,
       }
       await db.from('creator_styles').update({ updated_at: now }).eq('id', style_id).eq('user_id', user);
       return ok({ saved: true, path, hash: sha256(text) }, 'Saved; the creator sees it on the site under Style.');
+    }));
+
+    // ---- Radar (Trends & News): the monitoring record of the free model's work, and reviews of it.
+    const runId = z.string().regex(UUID).describe('Run id from list_radar_runs.');
+    server.registerTool('list_radar_runs', {
+      title: 'List Radar runs',
+      description: 'Recent Radar runs (weekly idea scans and daily checks of saved stories): status, what they found, cost, and which AI models answered. Read get_guide("radar") before reviewing one.',
+      annotations: read,
+    }, guarded('list_radar_runs', async () => {
+      const { data, error } = await db.from('radar_runs').select('id,kind,status,error,summary,cost_micro,created_at,finished_at').eq('user_id', user).order('created_at', { ascending: false }).limit(20);
+      if (error) throw error;
+      const ids = (data ?? []).map(r => r.id);
+      const { data: steps } = ids.length ? await db.from('radar_ai_steps').select('run_id,step,model,error,checks').in('run_id', ids) : { data: [] };
+      return ok({ runs: (data ?? []).map(r => ({ ...r, cost_usd: r.cost_micro / 1e6,
+        ai_steps: (steps ?? []).filter(s => s.run_id === r.id).map(s => ({ step: s.step, model: s.model, failed: !!s.error && !s.model, checks: s.checks })) })) });
+    }));
+
+    server.registerTool('get_radar_run', {
+      title: 'Read a Radar run',
+      description: `One Radar run in full: every AI step with its exact input (the videos and headlines the model saw), its raw reply, the model that answered and what the server's checks kept or dropped; run.raw, the whole pool the scan collected (every video and headline per seed, including those not shown to the model, and each topic's 14-day scoring search) so you can redo the grouping yourself; plus the ideas the run produced with their evidence, metrics, the creator's decision and earlier reviews.`,
+      inputSchema: z.object({ run_id: runId }),
+      annotations: read,
+    }, guarded('get_radar_run', async ({ run_id }) => {
+      const { data: run, error } = await db.from('radar_runs').select('id,kind,status,error,summary,cost_micro,created_at,finished_at,raw').eq('id', run_id).eq('user_id', user).maybeSingle();
+      if (error) throw error;
+      if (!run) return refuse('No Radar run with that id. Call list_radar_runs.');
+      const { data: steps } = await db.from('radar_ai_steps').select('id,step,idea_id,model,input,output,checks,error,ms,created_at').eq('run_id', run_id).order('created_at');
+      const ideaIds = [...new Set((steps ?? []).flatMap(s => s.idea_id ? [s.idea_id] : []))];
+      const { data: ideas } = await db.from('radar_ideas').select('id,name,summary,angle,bucket,status,label,score,metrics,evidence,change_note,last_checked')
+        .eq('user_id', user).or(ideaIds.length ? `run_id.eq.${run_id},id.in.(${ideaIds.join(',')})` : `run_id.eq.${run_id}`);
+      const { data: reviews } = (ideas ?? []).length ? await db.from('radar_reviews').select('idea_id,reviewer,model,verdict,notes,suggestion,created_at').in('idea_id', ideas!.map(i => i.id)) : { data: [] };
+      return ok({ run, ai_steps: steps ?? [], ideas: (ideas ?? []).map(i => ({ ...i, reviews: (reviews ?? []).filter(r => r.idea_id === i.id) })) });
+    }));
+
+    server.registerTool('review_radar_idea', {
+      title: 'Review a Radar idea',
+      description: `Leave your review of one idea the free model produced: keep, fix (with the corrected name, summary or angle) or drop, with short notes for the creator. It shows on the idea card. It never changes the creator's decision.`,
+      inputSchema: z.object({
+        idea_id: z.string().regex(UUID).describe('Idea id from get_radar_run.'),
+        verdict: z.enum(['keep', 'fix', 'drop']),
+        notes: z.string().trim().min(1).max(2000).describe('Why, in a sentence or two the creator can read quickly. Say what you could not verify.'),
+        reviewer: z.enum(['claude', 'codex', 'other']).describe('Who you are.'),
+        model: z.string().max(80).optional().describe('Your model name, if you know it.'),
+        suggested_name: z.string().max(120).optional(),
+        suggested_summary: z.string().max(600).optional(),
+        suggested_angle: z.string().max(400).optional(),
+        request_id: requestId,
+      }),
+      annotations: write,
+    }, guarded('review_radar_idea', async ({ idea_id, verdict, notes, reviewer, model, suggested_name, suggested_summary, suggested_angle }) => {
+      const { data: idea } = await db.from('radar_ideas').select('id,name').eq('id', idea_id).eq('user_id', user).maybeSingle();
+      if (!idea) return refuse('No Radar idea with that id. Call get_radar_run.');
+      if (verdict === 'fix' && !suggested_name && !suggested_summary && !suggested_angle) return refuse('A "fix" needs at least one of suggested_name, suggested_summary or suggested_angle.');
+      const suggestion = Object.fromEntries(Object.entries({ name: suggested_name, summary: suggested_summary, angle: suggested_angle }).filter(([, v]) => v?.trim()));
+      const { error } = await db.from('radar_reviews').insert({ user_id: user, idea_id, reviewer, model: model ?? null, verdict, notes, suggestion });
+      if (error) throw error;
+      return ok({ saved: true, idea: idea.name, verdict }, 'Saved; the creator sees your review on the idea card under Trends & News.');
+    }));
+
+    // ---- Planner: outlines for planned videos, most often Radar topics the creator added.
+    const planItemId = z.string().regex(UUID).describe('Plan item id from list_plan_items.');
+    server.registerTool('list_plan_items', {
+      title: 'List planned videos',
+      description: 'The creator\'s planned videos that are not posted yet: title, status, day, whether it came from a Trends & News idea and whether it has an outline. Read get_guide("outline") before outlining one.',
+      annotations: read,
+    }, guarded('list_plan_items', async () => {
+      const { data, error } = await db.from('plan_items').select('id,title,status,format,platform,scheduled_on,radar_idea_id,outline_at,created_at')
+        .eq('user_id', user).neq('status', 'posted').order('created_at', { ascending: false }).limit(100);
+      if (error) throw error;
+      return ok({ items: (data ?? []).map(({ radar_idea_id, outline_at, ...i }) => ({ ...i, from_trends: !!radar_idea_id, outline_saved_at: outline_at })) });
+    }));
+
+    server.registerTool('get_plan_item', {
+      title: 'Read a planned video',
+      description: 'One planned video with everything to outline it from: its notes and current outline; for a Trends & News topic, the idea (summary, angle, bucket, metrics), its evidence, daily updates and reviews, plus the headlines and videos from the scan\'s raw pool that match the topic (titles only: open the links for the facts); the creator\'s channel (recent titles, buckets, format) and default style id.',
+      inputSchema: z.object({ plan_item_id: planItemId }),
+      annotations: read,
+    }, guarded('get_plan_item', async ({ plan_item_id }) => {
+      const { data: item, error } = await db.from('plan_items').select('id,title,notes,status,format,platform,scheduled_on,radar_idea_id,outline,outline_at').eq('id', plan_item_id).eq('user_id', user).maybeSingle();
+      if (error) throw error;
+      if (!item) return refuse('No planned video with that id. Call list_plan_items.');
+      const [{ data: profile }, { data: style }] = await Promise.all([
+        db.from('radar_profiles').select('format,region,buckets,channel').eq('user_id', user).maybeSingle(),
+        db.from('creator_styles').select('id,name').eq('user_id', user).eq('is_default', true).maybeSingle(),
+      ]);
+      const channel = profile && { ...profile, channel: profile.channel && { name: profile.channel.name, subs: profile.channel.subs, recent_titles: profile.channel.titles } };
+      const { radar_idea_id, ...planned } = item;
+      const idea = radar_idea_id ? (await db.from('radar_ideas').select('id,run_id,name,summary,angle,bucket,keywords,query,label,metrics,evidence,change_note,status').eq('id', radar_idea_id).eq('user_id', user).maybeSingle()).data : null;
+      if (!idea) return ok({ item: planned, idea: null, channel, default_style: style ?? null });
+      const [{ data: updates }, { data: reviews }, { data: run }] = await Promise.all([
+        db.from('radar_updates').select('kind,title,url,source,published,found_at').eq('idea_id', idea.id).order('found_at', { ascending: false }).limit(50),
+        db.from('radar_reviews').select('reviewer,model,verdict,notes,suggestion,created_at').eq('idea_id', idea.id).order('created_at', { ascending: false }),
+        idea.run_id ? db.from('radar_runs').select('raw').eq('id', idea.run_id).eq('user_id', user).maybeSingle() : Promise.resolve({ data: null }),
+      ]);
+      // The scan saw far more than the model grouped; hand over what matches this topic so nothing collected is lost.
+      const raw = (run?.raw ?? {}) as { videos?: { title: string }[]; news?: { title: string }[] }, match = [...idea.keywords, idea.name];
+      const related = { videos: (raw.videos ?? []).filter(v => onTopic(v.title, match)), news: (raw.news ?? []).filter(n => onTopic(n.title, match)) };
+      return ok({ item: planned, idea: { ...idea, updates: updates ?? [], reviews: reviews ?? [] }, related, channel, default_style: style ?? null });
+    }));
+
+    server.registerTool('save_outline', {
+      title: 'Save a video outline',
+      description: 'Save the outline of a planned video as markdown: sections with time ranges and talking points, each fact with its source, unverified points marked ⚠️, then the sources. Follow get_guide("outline"). It replaces the item\'s previous outline and shows in the Planner at once.',
+      inputSchema: z.object({ plan_item_id: planItemId, outline: z.string().trim().min(200).max(40000), request_id: requestId }),
+      annotations: { ...write, idempotentHint: true },
+    }, guarded('save_outline', async ({ plan_item_id, outline }) => {
+      if (!/^##\s/m.test(outline)) return refuse('Give the outline its sections as "## " headings (see get_guide("outline")).');
+      const now = new Date().toISOString();
+      const { data, error } = await db.from('plan_items').update({ outline, outline_at: now, updated_at: now }).eq('id', plan_item_id).eq('user_id', user).select('id,title');
+      if (error) throw error;
+      if (!data?.length) return refuse('No planned video with that id. Call list_plan_items.');
+      return ok({ saved: true, title: data[0].title }, 'Saved; the creator sees the outline when they open this video in the Planner.');
     }));
 
     return server;

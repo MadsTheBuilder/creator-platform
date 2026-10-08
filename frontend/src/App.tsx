@@ -5,11 +5,12 @@ import { Connections } from './pages/Connections';
 import { Playground } from './pages/Playground';
 import { isStep, stepIn, stepsFor, type Step, type Track } from './data/tracks';
 import { Planner } from './pages/Planner';
+import { Radar } from './pages/Radar';
 import { Style } from './pages/Style';
 // Modules without a route are on the roadmap (see CLAUDE.md) and render as "Soon".
 const nav=[
   {label:'Overview',icon:SquaresFour,route:'Overview'},
-  {label:'Trends & News',icon:TrendUp},
+  {label:'Trends & News',icon:TrendUp,route:'Trends'},
   {label:'Planner',icon:CalendarBlank,route:'Planner'},
   {label:'Playground',icon:Sparkle,route:'Playground'},
   {label:'Style',icon:PaintBrush,route:'Style'},
@@ -17,10 +18,11 @@ const nav=[
   {label:'Connections',icon:Plugs,route:'Connections'},
 ];
 const stepIcons:Record<Step,Icon>={script:FileText,shots:FilmStrip,storyboard:Images,'3d':Cube,ai:MagicWand,direct:Compass,build:Hammer,edit:Scissors};
-const routes=['Overview','Planner','Playground','Style','Connections'];
+const routes=['Overview','Trends','Planner','Playground','Style','Connections'];
 const headings:Record<string,[string,string]>={
   Overview:['Channel performance','Real numbers from the platforms you own. Nothing estimated.'],
   Planner:['Content planner','Line up the next few weeks. Drag ideas onto days.'],
+  Trends:['Trends & News','Build on what you know. Find the next question worth explaining.'],
   Style:['Your style','The look your videos are built in. Read it, edit it, and pick one per project.'],
   Connections:['Connections','Sign in, then connect your channels to track their performance.'],
 };
@@ -71,6 +73,7 @@ export function App(){
         {route==='Overview'?<Overview search={search} onConnections={()=>navigate('Connections')}/>
           :route==='Planner'?<Planner onOpenProject={openProject} onConnections={()=>navigate('Connections')}/>
           :route==='Style'?<Style onConnections={()=>navigate('Connections')}/>
+          :route==='Trends'?<Radar onConnections={()=>navigate('Connections')}/>
           :playground?<Playground projectId={loc.project} step={loc.step} onOpen={openProject} onProject={p=>setOpen(p&&{id:p.id,track:p.track})} onConnections={()=>navigate('Connections')}/>
           :<Connections/>}
         </div>

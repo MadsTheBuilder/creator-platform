@@ -5,7 +5,7 @@
 FROM node:24-bookworm-slim AS site
 WORKDIR /app/frontend
 COPY frontend/package.json frontend/package-lock.json ./
-RUN npm ci
+RUN npm ci --no-audit --no-fund --fetch-timeout=30000 --fetch-retries=2
 COPY frontend/ ./
 ARG VITE_SUPABASE_URL
 ARG VITE_SUPABASE_PUBLISHABLE_KEY
