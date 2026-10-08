@@ -19,5 +19,6 @@ export function serveSocial(provider: Provider) {
     },
     async consumeState(hash) { const {data,error} = await admin.rpc('consume_social_state',{p_provider:provider.name,p_hash:hash}); check(error); return data?.[0] ?? null; },
   };
-  Deno.serve(createSocialConnector({store,provider,encryptionKey:env('SOCIAL_TOKEN_ENCRYPTION_KEY') || env('YOUTUBE_TOKEN_ENCRYPTION_KEY'),origins:(env('SOCIAL_APP_ORIGINS') || env('YOUTUBE_APP_ORIGINS')).split(',').map(value=>value.trim()).filter(Boolean),async authenticate(token) {const {data,error} = await admin.auth.getUser(token); return error ? null : data.user?.id ?? null;}}));
+  // The shared guest account never connects a channel: every visitor would see it.
+  Deno.serve(createSocialConnector({store,provider,encryptionKey:env('SOCIAL_TOKEN_ENCRYPTION_KEY') || env('YOUTUBE_TOKEN_ENCRYPTION_KEY'),origins:(env('SOCIAL_APP_ORIGINS') || env('YOUTUBE_APP_ORIGINS')).split(',').map(value=>value.trim()).filter(Boolean),async authenticate(token) {const {data,error} = await admin.auth.getUser(token); return error || data.user?.app_metadata?.guest ? null : data.user?.id ?? null;}}));
 }

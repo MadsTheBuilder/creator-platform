@@ -18,7 +18,8 @@ const store: Store = {
 };
 Deno.serve(createConnector({
   store,
-  async authenticate(token) { const { data, error } = await admin.auth.getUser(token); return error ? null : data.user?.id ?? null; },
+  // The shared guest account never connects a channel: every visitor would see it.
+  async authenticate(token) { const { data, error } = await admin.auth.getUser(token); return error || data.user?.app_metadata?.guest ? null : data.user?.id ?? null; },
   fetch,
   clientId: env('YOUTUBE_GOOGLE_CLIENT_ID'), clientSecret: env('YOUTUBE_GOOGLE_CLIENT_SECRET'), encryptionKey: env('YOUTUBE_TOKEN_ENCRYPTION_KEY'),
   callbackUrl: `${url}/functions/v1/youtube-connector?action=callback`,

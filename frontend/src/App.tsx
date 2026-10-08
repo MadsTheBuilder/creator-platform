@@ -1,6 +1,9 @@
 import { useEffect, useRef, useState, type CSSProperties } from 'react';
 import { SquaresFour, TrendUp, CalendarBlank, Sparkle, Recycle, Plugs, MagnifyingGlass, List, Plus, ArrowLeft, FileText, FilmStrip, Images, Cube, MagicWand, Scissors, VideoCamera, Compass, Hammer, PaintBrush, type Icon } from '@phosphor-icons/react';
 import { Overview } from './pages/Overview';
+import { useSession } from './data/hooks';
+import { isGuest, signInAsGuest } from './data/supabase';
+import { Notice } from './components/ui';
 import { Connections } from './pages/Connections';
 import { Playground } from './pages/Playground';
 import { isStep, stepIn, stepsFor, type Step, type Track } from './data/tracks';
@@ -26,14 +29,14 @@ const headings:Record<string,[string,string]>={
   Style:['Your style','The look your videos are built in. Read it, edit it, and pick one per project.'],
   Connections:['Connections','Sign in, then connect your channels to track their performance.'],
 };
-type Location={route:string;project?:string;step?:Step};
-// #overview, #connections, #playground, #playground/<project id>[/<step>] (no step: the track's first)
+type Location={route:string;project?:string;step?:Step;topic?:string};
+// #guest (signs in as the shared guest account, then opens the Playground), #overview, #connections, #trends[/<idea id>], #playground, #playground/<project id>[/<step>] (no step: the track's first)
 function readRoute():Location{
   const [head,project,step]=window.location.hash.slice(1).split('/');
   const route=routes.find(r=>r.toLowerCase()===head)??'Overview';
-  return {route,project:route==='Playground'&&project?project:undefined,step:isStep(step)?step:undefined};
+  return {route,project:route==='Playground'&&project?project:undefined,topic:route==='Trends'&&project?project:undefined,step:isStep(step)?step:undefined};
 }
-const toHash=(l:Location)=>l.route==='Playground'&&l.project?`playground/${l.project}${l.step?`/${l.step}`:''}`:l.route.toLowerCase();
+const toHash=(l:Location)=>l.route==='Trends'&&l.topic?`trends/${l.topic}`:l.route==='Playground'&&l.project?`playground/${l.project}${l.step?`/${l.step}`:''}`:l.route.toLowerCase();
 export function App(){
   const [loc,setLoc]=useState(readRoute),[search,setSearch]=useState(''),[menu,setMenu]=useState(false);
   // The open project's track picks the dock's steps (the Playground reports it once the project loads).
@@ -42,6 +45,9 @@ export function App(){
   const track=open&&open.id===loc.project?open.track:null;
   const editing=playground&&!!loc.project&&loc.step==='edit';
   const searchInput=useRef<HTMLInputElement>(null);
+  const guest=isGuest(useSession());
+  const [guestError,setGuestError]=useState('');
+  useEffect(()=>{if(window.location.hash!=='#guest')return;signInAsGuest().then(()=>window.location.replace('#playground'),e=>setGuestError(e instanceof Error?e.message:'The guest account is not available right now.'));},[]);
   useEffect(()=>{const change=()=>{setLoc(readRoute());setMenu(false);setSearch('');};window.addEventListener('hashchange',change);return()=>window.removeEventListener('hashchange',change);},[]);
   useEffect(()=>{if(!menu)return;const trigger=document.querySelector<HTMLButtonElement>('.menu-button');const items=Array.from(document.querySelectorAll<HTMLElement>('.sidebar a,.sidebar button'));items[0]?.focus();function key(event:KeyboardEvent){if(event.key==='Escape'){setMenu(false);return;}if(event.key==='Tab'){const first=items[0],last=items[items.length-1];if(event.shiftKey&&document.activeElement===first){event.preventDefault();last?.focus();}else if(!event.shiftKey&&document.activeElement===last){event.preventDefault();first?.focus();}}}document.addEventListener('keydown',key);return()=>{document.removeEventListener('keydown',key);trigger?.focus();};},[menu]);
   useEffect(()=>{function key(event:KeyboardEvent){if((event.metaKey||event.ctrlKey)&&event.key.toLowerCase()==='k'&&searchInput.current){event.preventDefault();searchInput.current.focus();}}document.addEventListener('keydown',key);return()=>document.removeEventListener('keydown',key);},[]);
@@ -69,11 +75,13 @@ export function App(){
           {route==='Overview'&&<button className="button primary topbar-action" onClick={()=>navigate('Connections')}><Plus size={16} weight="bold"/><span>Connect<span className="wide-only"> channel</span></span></button>}
         </header>
         <div className={`content ${editing?'content-editor':''}`}>
+        {guestError&&<Notice>{guestError}</Notice>}
+        {guest&&!editing&&<Notice>You are in the shared guest account. Everyone with the link works here too, so you'll see each other's projects and changes.</Notice>}
         {!playground&&<div className="page-heading"><h1>{headings[route][0]}</h1><p>{headings[route][1]}</p></div>}
         {route==='Overview'?<Overview search={search} onConnections={()=>navigate('Connections')}/>
           :route==='Planner'?<Planner onOpenProject={openProject} onConnections={()=>navigate('Connections')}/>
           :route==='Style'?<Style onConnections={()=>navigate('Connections')}/>
-          :route==='Trends'?<Radar onConnections={()=>navigate('Connections')}/>
+          :route==='Trends'?<Radar topic={loc.topic} onTopic={topic=>go({route:'Trends',topic})} onConnections={()=>navigate('Connections')}/>
           :playground?<Playground projectId={loc.project} step={loc.step} onOpen={openProject} onProject={p=>setOpen(p&&{id:p.id,track:p.track})} onConnections={()=>navigate('Connections')}/>
           :<Connections/>}
         </div>

@@ -45,6 +45,12 @@ Backend: `supabase link --project-ref siacpdaiovnliamhorrf` once, then `supabase
 
 App service (worker): deploy from the repo root with `railway up --service worker` (service var `RAILWAY_DOCKERFILE_PATH=worker/Dockerfile`). Railway variables: `SUPABASE_URL`, `SUPABASE_SECRET_KEY` (Supabase secret / service-role key), `ANTHROPIC_API_KEY` (or `ANTHROPIC_BASE_URL` + `ANTHROPIC_AUTH_TOKEN` + `CLAUDE_MODEL` for OpenRouter), and `VITE_SUPABASE_URL` + `VITE_SUPABASE_PUBLISHABLE_KEY` (build args for the site). Needs a volume mounted at `/data` and a public domain. Logs: `railway logs --service worker`.
 
+Guest account (`/#guest`, `worker/guest.ts`):
+- Set `GUEST_EMAIL` and `GUEST_SOURCE_USER` (the user id whose data is copied) on the worker.
+- Create or refresh the guest with `railway ssh --service worker -- node guest.ts reset`. It wipes the guest's rows, files, renders, channel connections and paired PCs, then copies the source account with every id remapped. Queued or running jobs land as failed.
+- Unset `GUEST_EMAIL` to turn the link off.
+- After changing the connectors, deploy `youtube-connector`, `instagram-connector` and `tiktok-connector`: they refuse the guest.
+
 Worker tests: `npm test` in `worker/` (MCP contract test, Node's test runner; one test runs `hyperframes check`).
 
 Local: `npm start` in `worker/` runs the app server on :8787 and the job loop against the live queue; `npm run dev` in `frontend/` proxies `/api`, `/studio` and the Studio's assets to it.

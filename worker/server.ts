@@ -11,6 +11,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 // every HyperFrames release, so bump it together with the pinned version (0.8.134).
 import { createStudioServer } from 'hyperframes/dist/studioServer-PXNJXHMV.js';
 import { parseStoryboard } from '../frontend/src/storyboard/composition.ts';
+import { guestSession } from './guest.ts';
 import { JobError } from './job-error.ts';
 import { mountMcp } from './mcp.ts';
 import { BLOCKOUT_FILE, DATA, ensureProject, hasRoom, isBlank, latestBreakdown, listMedia, listReferences, listTakes, local, MB, mediaPath, mimeOf, owns as ownsProject, projectDir,
@@ -89,6 +90,21 @@ export function startServer(db: SupabaseClient, port: number) {
 
   // The creator's own Claude / Codex (OAuth bearer tokens, not the cookie).
   mountMcp(app, db, { supabaseUrl: process.env.SUPABASE_URL!, userFor });
+
+  // The #guest link: a session for the shared guest account (worker/guest-reset.ts), minted from a one-time sign-in
+  // link so no password exists. Unset GUEST_EMAIL turns it off.
+  const guestTries = new Map<string, number[]>();
+  app.post('/api/guest', async c => {
+    const email = process.env.GUEST_EMAIL;
+    if (!email) return c.json({ error: 'The guest account is not available on this site.' }, 404);
+    // ponytail: in-memory, per worker; 10 sign-ins a minute per address.
+    const ip = c.req.header('x-forwarded-for')?.split(',')[0].trim() ?? 'local', now = Date.now();
+    const recent = (guestTries.get(ip) ?? []).filter(t => t > now - 60_000);
+    if (recent.length >= 10) return c.json({ error: 'Too many tries. Wait a minute and open the link again.' }, 429);
+    guestTries.set(ip, [...recent, now]);
+    try { return c.json(await guestSession(db, email)); }
+    catch (cause) { console.error('guest sign-in failed', cause); return c.json({ error: 'The guest account is not available right now.' }, 503); }
+  });
 
   // Everything else under /api and /studio needs a signed-in creator.
   const signedIn = async (c: Context<Env>, next: () => Promise<void>) => {
