@@ -22,7 +22,7 @@ import { parseStoryboard, totalSeconds, type Storyboard } from '../frontend/src/
 import { BREAKDOWN_PROMPTS } from './breakdown.ts';
 import { JobError } from './job-error.ts';
 import {
-  DATA, ensureProject, hasRoom, isBlank, latestBreakdown, listMedia, listReferences, listTakes, local, MB, mediaPath, owns, projectDir, readComposition,
+  DATA, ensureProject, hasRoom, isBlank, latestBreakdown, listMedia, listReferences, listTakes, local, LOCAL_HOST, MB, mediaPath, owns, projectDir, readComposition,
   readBoard, readPromptBlockout, readPrompts, readTranscript, refPath, saveBody, sendFile, sha256, takePath, touchProject, UploadError, UUID, writeBoard, writeComposition,
 } from './project-files.ts';
 import { BREAKDOWN_SCHEMA } from './schemas.ts';
@@ -468,7 +468,8 @@ export function createMcp(db: SupabaseClient) {
       const count = summary(latest.storyboard).shots, wanted = [...new Set(shots)].sort((a, b) => a - b);
       if (wanted.some(n => n > count)) return refuse(`The breakdown has ${count} shots; pick numbers from 1 to ${count}.`);
       const [{ data, error }, { data: devices }] = await Promise.all([
-        db.from('video_jobs').insert({ user_id: user, project_id, kind: 'blockout', input: { breakdown_id: latest.id, shots: wanted } }).select('id').single(),
+        db.from('video_jobs').insert({ user_id: user, project_id, kind: 'blockout', input: { breakdown_id: latest.id, shots: wanted,
+          ...LOCAL_HOST.test(new URL(String(authInfo?.extra?.origin ?? 'http://x')).host) && { local: true } } }).select('id').single(),
         db.from('bridge_devices').select('id').eq('user_id', user).gt('last_seen', new Date(Date.now() - 90_000).toISOString()),
       ]);
       if (error) throw error;

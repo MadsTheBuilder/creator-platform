@@ -57,7 +57,8 @@ export function Visual3D({ project, onShots }: { project: Project; onShots: () =
 
   async function build() {
     setBusy('build'); setError('');
-    try { setJob(await queueJob<BlockoutJob>('blockout', { breakdown_id: breakdown!.id, shots: [...picked].sort((a, b) => a - b) }, project.id)); }
+    try { setJob(await queueJob<BlockoutJob>('blockout', { breakdown_id: breakdown!.id, shots: [...picked].sort((a, b) => a - b),
+      ...(/^(localhost|127\.0\.0\.1|\[::1\])$/.test(location.hostname) && { local: true }) }, project.id)); }
     catch (e) { setError((e as Error).message); } finally { setBusy(''); }
   }
 

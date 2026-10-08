@@ -14,7 +14,7 @@ import { parseStoryboard } from '../frontend/src/storyboard/composition.ts';
 import { JobError } from './job-error.ts';
 import { mountMcp } from './mcp.ts';
 import { BLOCKOUT_FILE, DATA, ensureProject, hasRoom, isBlank, latestBreakdown, listMedia, listReferences, listTakes, local, MB, mediaPath, mimeOf, owns as ownsProject, projectDir,
-  readBoard, readComposition, readPromptBlockout, readPrompts, refPath, SAFE_NAME, saveBody, sendFile, sha256, touchProject, UploadError, writeBoard, writeComposition } from './project-files.ts';
+  LOCAL_HOST, readBoard, readComposition, readPromptBlockout, readPrompts, refPath, SAFE_NAME, saveBody, sendFile, sha256, touchProject, UploadError, writeBoard, writeComposition } from './project-files.ts';
 import { makeStoryboard, readStoryboard, StoryboardError, storyboardVideos } from './storyboard.ts';
 import { finish as finishTranscription, probe, settings, speech, tickets, whisperJson } from './transcribe.ts';
 
@@ -297,6 +297,11 @@ export function startServer(db: SupabaseClient, port: number) {
     if (error) return c.json({ error: 'queue unavailable' }, 503);
     const job = data?.[0];
     if (!job) return c.json(null);
+    // ponytail: a helper on the wrong side requeues the job each poll until the right one claims it.
+    if (Boolean(job.input?.local) !== LOCAL_HOST.test(c.req.header('x-forwarded-host') ?? c.req.header('host') ?? '')) {
+      await db.from('video_jobs').update({ status: 'queued' }).eq('id', job.id);
+      return c.json(null);
+    }
     if (job.kind === 'transcribe') {
       try { await probe(job); } catch (e) { await fail(job.id, e instanceof JobError ? e.message : 'The recording could not be read.'); return c.json(null); }
       return c.json({ id: job.id, kind: 'transcribe' });

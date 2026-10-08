@@ -170,6 +170,7 @@ test('a saved breakdown is what the site reads', async () => {
   const queued = await call(client, 'queue_blockout', { project_id: MINE, shots: [2, 1, 2] });
   assert.deepEqual(queued.structuredContent.shots, [1, 2]);
   assert.equal(queued.structuredContent.blender_helper_online, false);
+  assert.equal(tables.video_jobs.find(j => j.id === queued.structuredContent.job_id)!.input.local, undefined); // queued on the live site, not a dev worker
   await client.close();
 });
 

@@ -16,6 +16,9 @@ export const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{1
 export const SAFE_NAME = /^\w[\w .()-]{0,120}$/;
 export const REFERENCE = /\.(jpe?g|png|webp|gif|mp4|mov|webm)$/i;
 export const BLOCKOUT_FILE = /\.(mp4|png|blend|json)$/i;
+// A dev worker shares the live database: blockouts queued on localhost are tagged { local: true },
+// and a helper only takes jobs from its own side, so its files land on the server that will read them.
+export const LOCAL_HOST = /^(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/;
 // Studio track recordings, voiceovers, music and sound effects, in <project>/media/.
 export const MEDIA = /\.(mp4|mov|webm|m4a|mp3|wav|aac|ogg)$/i;
 // AI video takes (Production), generated from the project's prompts, in <project>/takes/.
