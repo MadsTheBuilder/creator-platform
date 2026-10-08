@@ -18,20 +18,21 @@ export function Storyboard({ project, onShots, onBlockout }: { project: Project;
   const server = useAppServer();
   const { breakdown } = useBreakdown(project.id);
   const [board, setBoard] = useState<Board | null>(null);
-  const [videos, setVideos] = useState<string[]>([]);
+  const [videos, setVideos] = useState<string[] | null>(null);
   const [video, setVideo] = useState('');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const base = `/api/playground/${project.id}`;
 
   const load = () => api<{ storyboard: Board | null; videos: string[] }>(`${base}/storyboard`)
-    .then(r => { setBoard(r.storyboard); setVideos(r.videos); setVideo(v => r.videos.includes(v) ? v : r.videos[0] ?? ''); }, e => setError(e.message));
+    .then(r => { setBoard(r.storyboard); setVideos(r.videos); setVideo(v => r.videos.includes(v) ? v : r.storyboard && r.videos.includes(r.storyboard.video) ? r.storyboard.video : r.videos[0] ?? ''); }, e => setError(e.message));
   const changes = useProjectChanges(project.id);
   useEffect(() => { if (server === 'ready') load(); }, [server, project.id, changes]);
 
   if (server !== 'ready') return server === 'connecting' ? <p role="status">Connecting…</p> : <p role="alert">{server}</p>;
   const sheet = breakdown?.status === 'done' ? breakdown.output : null;
   if (!sheet) return <div className="glass"><Empty title="Break down the script first" body="The storyboard is laid out from the shot breakdown and its 3D blockout, one row per shot."><Button className="primary" onClick={onShots}>Go to shot breakdown</Button></Empty></div>;
+  if (!videos) return error ? <p role="alert">{error}</p> : <p role="status">Loading the storyboard…</p>;
   if (!videos.length && !board) return <div className="glass"><Empty title="Build a blockout first" body="The storyboard takes its frames from the 3D blockout: the start, middle and end of every shot."><Button className="primary" onClick={onBlockout}>Go to 3D visual</Button></Empty></div>;
 
   async function make() {
