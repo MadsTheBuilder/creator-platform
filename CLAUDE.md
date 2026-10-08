@@ -1,126 +1,67 @@
-# Creator Platform — Claude Code Context
+# CLAUDE.md
 
-One web app for creators that pulls together systems already built in scattered folders. The job here is **consolidation, not reinvention**: port what works, delete the clutter, wire it into one product.
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-## What the platform does
+## Goal
 
-| # | Module | What the creator gets | Engine |
-|---|--------|----------------------|--------|
-| 1 | **Analytics** | Track social metrics and per-video performance | Platform APIs / scrapers |
-| 2 | **Trends & News** | Trending topics and news in their niche, for video ideas | Research pipeline |
-| 3 | **Planner** | Plan content weeks ahead on a calendar | App DB |
-| 4 | **Script → Storyboard** | Upload a script, get a shot breakdown and storyboard | shot-breakdown logic, HyperFrames animatics |
-| 5 | **3D Previs** | Turn the shot breakdown into a Blender blockout + render, usable as references for Higgsfield video generation | Blender (scripted), Higgsfield API |
-| 6 | **Video Edit** | Upload raw footage + idea + desired style, get an edited video back | Higgsfield |
-| 7 | **Repurpose** | Turn existing content into X posts, blogs, short-form | LLM pipeline |
+**Content Engine**: one web app for creators that consolidates systems already built in scattered folders. The job is **consolidation, not reinvention**: port what works, wire it into one product. Opening screen is analytics. Product spec: [PRODUCT.md](PRODUCT.md) · brand: [DESIGN.md](DESIGN.md) · source folders to port from: [docs/architecture.md#existing-source-to-consolidate](docs/architecture.md).
 
-The opening screen is the analytics view: understanding channel performance comes first.
+## Status by module (2026-10-08, branch `tracks`, feature freeze)
 
-## Existing source to consolidate
+| # | Module | State | Details |
+|---|--------|-------|---------|
+| 1 | Analytics | Built: Google sign-in, YouTube/IG/TikTok connect, metrics Overview | [youtube-connector](docs/youtube-connector.md), [social connectors](docs/social-connector-implementation.md) |
+| 2 | Trends & News | Radar (topic-radar port): weekly ideas scan + daily watch of saved ideas, AI step recorded and reviewable over MCP; "Add to Planner" links an idea to a planned video the creator's Claude can outline (`save_outline`). Run 4 done on the live DB. The 8-phase build was removed | [decisions](docs/decisions.md) 2026-10-07/08 |
+| 3 | Planner | Built: `plan_items`, month grid, agenda, Ideas inbox, posted-matching | [decisions](docs/decisions.md) |
+| 4 | Script → Storyboard | Script + shot breakdown built; Storyboard (after 3D visual) lays the blockout out shot by shot: frames via ffmpeg, `make_storyboard` over MCP | [decisions](docs/decisions.md) 2026-10-08 |
+| 5 | 3D Previs | Blender blockouts via the paired PC helper (`bridge/`); AI video step (prompts from the blockout, takes via the creator's own Higgsfield) deployed 2026-10-08 (`0df0f2f`), not yet run against a real Higgsfield account | [decisions](docs/decisions.md) |
+| 6 | Video Edit | HyperFrames editor in the Playground; Studio track (motion graphics over MCP) in first end-to-end test | `private-notes/2026-10-07-studio-test-handoff.md` |
+| 7 | Repurpose | Not started | — |
 
-Read the relevant source before building a module. Port code; don't rewrite what already works.
+Playground has two tracks per project: **Production** (Script, Shot breakdown, 3D visual, Storyboard, AI video, Video edit) and **Studio** (Direct, Build, Video edit). In UI copy "Studio" means the track; the HyperFrames app is "the editor".
 
-| Source | Path | Useful for |
-|--------|------|-----------|
-| Content Engine (Creator_OS) | `C:\Users\madhu\Mads_builds\Creator_OS` | `PRODUCT.md` and `DESIGN.md`: product spec, brand, orange/brown palette, React+Vite UI in `outputs/` |
-| Content Hub v1 | `C:\Users\madhu\Claude cowork\Content Hub` | Next.js frontend + Python backend (`backend/`: auth, research, content, workflows), Supabase schema (`supabase/`) |
-| Content Hub v2 | `C:\Users\madhu\Claude cowork\Content Hub V2` | Local-first skill engine: research, ideation, hooks, titles, short-form, YouTube pipeline (`skills/`) |
-| Red Balloon pipeline | `C:\Users\madhu\Mads_builds\tarun-mirzapur` | End-to-end reference: script → animatic storyboard → Blender blockout → VO/Whisper → final edit |
-| Higgsfield + Blender tests | `C:\Users\madhu\Mads_builds\Hygen-Test` | `hf-blender`, `higgsfield-skills`, `local 3d agent`, 3D/Higgsfield experiments |
-| IG / creator-profile tests | `C:\Users\madhu\Mads_builds\nate hygen test` | creator-profile skill, IG skill pack, HyperFrames kit |
+## Priority (next, in order)
 
-Never edit the source folders. Copy what's needed into this repo.
+Feature freeze from 2026-10-08: test, polish, ship; no new features. Deploy only from a clean commit (worktree, see the Studio handoff note).
 
-## Decisions
-
-- **2026-10-05 — Stack: Creator_OS base.** React + TS + Vite frontend, Supabase backend (Google sign-in via Supabase Auth, Deno Edge Functions for platform OAuth, Postgres for encrypted tokens). Supabase project: `creator-os` (ref `siacpdaiovnliamhorrf`).
-- **2026-10-05 — Module 1 ported first:** sign-in, YouTube/Instagram/TikTok connect, and the metrics Overview. Nothing else from Creator_OS was brought over.
-- **2026-10-06 — Hosting: Railway (Hobby), one project, two services.** `site` serves the built frontend; `worker` is a Docker container (`worker/Dockerfile`: Node 24 + HyperFrames' pinned Chrome + FFmpeg) that takes jobs from `video_jobs`: shot breakdowns via the Claude API. (Its old render job, which put MP4s in the private `renders` bucket, is gone: exports happen in the Studio editor. The bucket keeps earlier renders.) Supabase stays the backend. Move `site` to Cloudflare Pages if traffic grows. Railway project `creator-platform`; site live at https://site-production-a72f.up.railway.app. Deploy from repo root: `railway up frontend --path-as-root --service site`. The service var `RAILPACK_BUILD_CMD=npx vite build` skips `tsc` because the frontend tests import `supabase/`, which isn't in the upload.
-- **2026-10-06 — HyperFrames is the video engine** for storyboard animatics, animation, edits and short-form. The shot breakdown becomes an animatic composition (template: `tarun-mirzapur/red-balloon-sketch`) that opens in the HyperFrames Studio editor, which handles preview, editing and export. Pinned to **0.8.134** (the worker's `hyperframes` CLI provides both the Studio and rendering). The earlier in-page `<hyperframes-player>` preview and the worker's render job were removed when the Studio arrived.
-- **2026-10-06 — Storyboard v1 panels are spec cards** (framing schematic + lens/angle/camera/move/light + timed audio), not art. AI images per shot come next once Higgsfield access is decided. The breakdown takes a short vision form (format/tone, method, platform, length, feel) instead of the skill's chat interview.
-
-- **2026-10-06 — Playground replaces the Storyboard nav item.** It's project-based (`projects` table; jobs carry `project_id`), with its own steel-blue dock (`#2C5F8A`, a new brand colour: Creator_OS had kept blue to chart accents) and four steps: Script (paste/upload/generate), Shot breakdown, 3D visual, Video edit.
-- **2026-10-06 — Full HyperFrames Studio, served by the app service.** The worker becomes one Railway service: built site + Studio API + job loop, with a volume at `/data` for project folders (`/data/projects/<user>/<project>`). `worker/server.ts` reuses the CLI's own `hyperframes preview` server (`createStudioServer`, deep-imported from the pinned CLI) per project behind Supabase-cookie auth and a project-ownership check. The editor loads in a same-origin iframe at `/studio/<project>/`. The static `site` service retires once this is deployed. No new keys: HeyGen/Gemini/Figma keys only unlock optional media-use, capture and Figma import.
-- **2026-10-06 — Blender runs on the creator's PC, never on our server.** A paired helper (`bridge/`, standard-library Python) claims `blockout` jobs over `/bridge/*` with a device key (only its hash is stored in `bridge_devices`), runs `blockout.py` headless, and uploads the preview MP4, stills and `.blend` into the project folder.
-- **2026-10-06 — LLM via OpenRouter for now (free tier, ~50 requests/day).** No Anthropic key yet; AgentRouter keys reject non-Claude-Code clients. The worker uses OpenRouter's Anthropic-compatible API through `ANTHROPIC_BASE_URL=https://openrouter.ai/api` + `ANTHROPIC_AUTH_TOKEN`, model from `CLAUDE_MODEL` (`nvidia/nemotron-3-super-120b-a12b:free`: free and supports JSON-schema output). Unset all three and set `ANTHROPIC_API_KEY` to go back to Claude. The Anthropic-only server-side fallback in `breakdown.ts` is skipped whenever a base URL is set.
-- **2026-10-06 — App service live** at https://worker-production-b2a3.up.railway.app (volume `worker-volume` at `/data`, 500 MB). Supabase Auth's Site URL points at it, and `YOUTUBE_APP_ORIGINS` (shared by all three connectors) lists it alongside the two local 5173 origins.
-- **2026-10-06 — MCP server + Claude/Codex plugin (option B for Opus-level output).** The creator's own Claude or Codex does the generating; the platform supplies data, playbooks and storage. `/mcp` on the app service (`worker/mcp.ts`, MCP spec 2026-07-28 via `@modelcontextprotocol/server` v2, stateless, 2025-era fallback) with tools for projects, script, breakdown, Studio composition, references and blockouts. Auth is Supabase Auth's OAuth 2.1 server (consent page `/oauth/consent`, dynamic client registration on). Tools reuse the site's own code (`worker/project-files.ts`, `parseStoryboard`, `worker/schemas.ts`) and serve the playbooks (`get_guide`), so they follow site changes; Realtime on `projects` / `video_jobs` shows MCP writes live. Plugin for both clients in `plugin/` (marketplaces at `.claude-plugin/` and `.agents/plugins/`). Setup: `docs/mcp-setup.md`.
-
-- **2026-10-06 — Planner (module 3) built on one table, `plan_items`.** A month grid plus a two-week Agenda, with an Ideas inbox for unscheduled items (`scheduled_on` null); items move between days and the inbox by drag-and-drop or the item's date field. Days are plain `date`s so time zones never shift them. Posting stays manual: the creator ticks "Mark posted" and the Planner matches the item to the real upload from the connected YouTube / Instagram / TikTok (the connectors' existing `sync`, nothing new to authorise), storing only the chosen post's link and title. An item can optionally link to one Playground project ("Start in Playground", or the chain-link button to pick an existing project; a project links to at most one item); its card then shows that project's progress. Clicking a day opens its board: one column per stage, cards move by drag or arrow buttons (touch and keyboard). Trends will write ideas into the same table (add a `source` column then). No auto-publishing.
-- **2026-10-06 — Storyboard is its own Playground step** (dock: Script, Shot breakdown, Storyboard, 3D visual, Video edit). The breakdown no longer seeds the editor: the Studio opens empty, and storyboards (2D HyperFrames panels per shot) will live on the Storyboard step. `/api/playground/:id/seed` stays for that.
-- **2026-10-06 — The Playground has two tracks, chosen per project: Film and Video** (working names). **Film** is the current production flow for footage that is shot or AI-generated (Script, Shot breakdown, Storyboard, 3D visual, Video edit). Its storyboard stays essential because footage is the expensive step. **Video** is for code-rendered motion graphics built around the creator's own recording or script (Recording/Script, Direction, Build, Video edit). Its timing comes from the transcript or the music's beats, with no storyboard or blockout. Both share the project, script, references, MCP and the Studio editor. Video builds come from the creator's own Opus over MCP, never the free worker model. A calibration test matched an Opus + HyperFrames reference short on 0.8.134 with no new dependencies: one author, one continuous world, a named look, sound on every hit, and a snapshot critique.
-- **2026-10-06 — Tracks are named Production and Studio** (`projects.track`: `'production' | 'studio'`, fixed at creation, default `production` so older projects keep their flow). Studio steps: Direct, Build, Video edit (Direct merged Recording and Direction on 2026-10-07; its references are project-wide, stored as shot 0). In UI copy the HyperFrames editor is "the editor", so "Studio" means the track. The new-project form and the Planner's "Start in Playground" both ask for the track.
-- **2026-10-06 — Where files live: Google Drive is the creator's permanent home, their PC is an upload source, the volume is a cache.** The editor and renderer read from local disk, so a working copy always sits on `/data` (resize the volume to 5 GB, the Hobby cap). Uploads come from the browser or the creator's Claude Code (`create_upload_url` target `media`). A Google Drive connector (`drive.file`, import recordings, save renders back) follows the renderer split. Supabase Storage is out: the free plan caps files at 50 MB. Uploads are refused when they would leave less than 500 MB free.
-- **2026-10-06 — Recordings are Hindi and English mixed, so speech-to-text is whisper.cpp (v1.9.4) with `large-v3-turbo`, language named by the creator (never detected), and the project's script as the prompt.** Tested on an 8.6-min Hindi narration: detection called it English and returned a translation; `small` with Hindi set misspelled a lot; turbo + the script prompt spelled names right in the creator's own Roman Hinglish, then drifted to code-mixed Devanagari after ~3 min. About 1x real time and ~2 GB RAM on a laptop. A `transcribe` job runs `whisper-cli` on the creator's computer (see 2026-10-07); the server imports the result with `hyperframes transcribe` into `transcript.json` and converts the recording to a 1080p30 H.264 working copy (`media/recording.mp4`, or `.m4a` for a voiceover). The creator picks Hindi/Hinglish in Roman letters (default), Hindi in Devanagari, or English; whisper often writes Hindi in Devanagari whatever the chosen writing (measured: a short Roman seed sentence had no effect, and a script prompt doesn't hold in the first 30 s with timestamps on), so the creator's Claude converts Devanagari words to Roman with `fix_transcript` (timings kept) and corrects words against the script the same way.
-- **2026-10-07 — Speech to text runs on the creator's computer, never on our server** (like Blender). The image no longer carries whisper.cpp or the 1.6 GB model. One script, `bridge/transcribe.py` (standard library), does it two ways: the paired helper claims `transcribe` jobs queued by the Recording step, and the creator's Claude Code runs it directly with the one-job key and commands `transcribe_recording` returns (`/kit/transcribe.py`; `on: "helper"` queues for the helper instead, for clients without a shell). It fetches 16 kHz audio from `/bridge/jobs/<job>/audio`, runs whisper.cpp v1.9.4 (Windows: release `b5130`, downloaded on first use and given a UTF-8 code-page manifest, because Windows otherwise turns a Devanagari prompt into `?????`; Mac: `brew install whisper-cpp`) with large-v3-turbo cached at `~/.cache/hyperframes/whisper/models/`, and uploads `whisper.json`. The server then imports it and makes the working copy in the background. The recording still uploads to the server, because the editor and renderer read local disk.
-- **2026-10-07 — "Make my Studio video" runs the calibration process from the server playbook, with no local HyperFrames install.** `get_guide("studio")` orders the work: refine the ask (at most three questions), choose recording-led or music/visual-led (no recording needed), study the references, make the sound when `media/` has none (synthesize with Python/ffmpeg, normalise to −14 LUFS, upload), plan, stop for approval, build, then at least two snapshot rounds. The plan starts with "What I took from the references". `save_plan` also writes `BRIEF.md` into the project folder. `list_references` returns the images and a 16-frame sheet per reference video (cached as `.<name>.sheet.jpg`), so every client sees them. References now take up to 1 GB, the same as media, and get the same free-space check; anything bigger is named by its local path in the direction. Rejected: a local kit with `hyperframes skills`, because it installs the latest skills rather than 0.8.134 and would need a project mirror.
-- **2026-10-07 — Where each step runs (Studio track).** Direction, references and plan approval: the site. Planning, writing the composition and critique: the creator's own Claude. Speech to text and ffmpeg: the creator's PC. Storage: `/data/projects/<user>/<project>` on the Railway volume. `hyperframes check` on every save, snapshots, the editor and render: the server (`worker`). Agreed next: move check and snapshot to the creator's PC too, with the server check on `save_composition` kept as the final gate.
-- **2026-10-07 — Creator styles: a library per account, one per project.** A style is the creator-profile skill's files (`DESIGN.md`, `voice.md`, `analysis.md`, `style.json`, `tokens.css`, `cards/<tier>/*.html`) plus the creator's own `notes.md`, which outranks the rest. Stored in Postgres (`creator_styles`, `creator_style_files`; migration `20261011090000_creator_styles.sql`), not the volume, which has no backup. Reference videos stay on the creator's PC. The site's Style page (`#style`) imports a folder, shows a summary from `style.json`, and edits each file; the Direct step picks the project's style (new projects take the default) and now edits the beat plan too. MCP: `list_styles`, `get_style`, `create_style`, `save_style_file`. Precedence: project direction > project references > `notes.md` > rest of the style > guide defaults. Claude proposes style edits from the creator's feedback at the end of a video and saves only those the creator accepts. **Cards** (the kit's HyperFrames sub-compositions with `data-slot` text) are copied into the project's `style/` folder with `tokens.css` whenever Claude reads, saves or snapshots the composition (`worker/style-files.ts`): each is rewritten to load GSAP from the project, take its slot text from the mount's `data-variable-values`, and waive the check's overlap error on its own tight-leading slot text. Mounted with `data-composition-src="style/cards/<tier>/<card>.html"`; verified with `hyperframes check` (clean) and snapshots (two mounts of one card, different text, image slot). The Style page previews each card live in a sandboxed iframe.
-- **2026-10-07 — All of HyperFrames moves to the creator's PC** (check, snapshot, render, editor), like Blender and speech to text. Order: local check + snapshot (Claude Code, `npx hyperframes@0.8.134`), then local render through the helper (replaces the planned private `renderer` service), then the editor served by the helper on `127.0.0.1`, with `index.html` synced back to the server under the hash check. `save_composition` keeps the server check as the final gate; the server editor and snapshot stay as a fallback for one release (phones, claude.ai web). Plan: `~/.claude/plans/if-we-use-a-scalable-beaver.md`.
+1. Ship Radar + Planner outlines: set `TREG_API_KEY`, `SERPAPI_API_KEY`, `YOUTUBE_DATA_API_KEY` on Railway, deploy, then check a scan, "Check saved stories", Archive/Restore/Delete and Add to Planner on the live site.
+2. Walk the whole app as a new user and fix what breaks; label anything not run against a real account as demo/pending.
+3. Open it to up to 5 named people (testers on Google, Instagram, TikTok apps) with a one-page guide.
 
 ## Open decisions (ask before assuming)
 
-- **Higgsfield access**: API key vs MCP, and which models/workflows map to modules 5 and 6.
-- **Creator profile (onboarding analysis)**: leaning `creator-profile` skill over `ig-profile`. It has to be adapted for the deployed app: OAuth data in place of yt-dlp, Claude API calls in place of subagents. Still open is how we get the video files. The existing connections cover Instagram (Reel `media_url`). YouTube and TikTok APIs don't return files, so the choice is creator uploads vs adding the YouTube `youtube.force-ssl` scope for transcripts.
+- **Higgsfield access**: video is decided (creator's own connector or API key, 2026-10-07). Open: images per shot for the Storyboard step.
+- **Creator profile onboarding**: leaning `creator-profile` skill (adapted: OAuth data, Claude API). Open: how to get video files for YouTube/TikTok (creator uploads vs `youtube.force-ssl` transcripts).
+- Keep snapshot rounds vs overwrite them (Studio).
+- Real LLM provider: currently OpenRouter free tier (~50 req/day) pending an Anthropic key.
 
-Record each decision above once it's made.
+Record each decision in [docs/decisions.md](docs/decisions.md) once made.
 
 ## Rules
 
-- Consolidate first. Before writing a module, find its existing implementation in the sources above.
-- No platform integration is "done" until it runs against a real account. Until then, the UI shows clearly labelled demo data and pending-integration states. Never fabricate metrics or promise virality.
-- Storyboards need camera position, angle, lens, lighting, motion and timing for every shot (the 3D and Higgsfield steps depend on them).
-- Secrets go in the root `.env` (gitignored; `.env.example` lists every key and where it's deployed). Never copy keys out of the old projects' `.env` files into code.
-- Don't carry over clutter: test scripts, logs, `tmp/`, `scratch/`, `__pycache__`, duplicate vaults.
-- Keep it small. One module working end to end beats seven half-wired.
+- Consolidate first: find the existing implementation in the source folders before writing a module. Never edit those folders; copy into this repo.
+- No integration is "done" until it runs against a real account. Until then show labelled demo/pending states. Never fabricate metrics or promise virality.
+- Storyboards need camera position, angle, lens, lighting, motion and timing per shot.
+- Secrets go in root `.env` (gitignored); `.env.example` lists every key and where it's deployed. Never copy keys from old projects.
+- Blender, speech-to-text and (next) HyperFrames run on the creator's PC, never on our server.
+- No clutter (test scripts, logs, `tmp/`, `__pycache__`). One module end to end beats seven half-wired.
+- `private-notes/` is git-excluded: decisions to revisit and session handoffs.
 
-## Structure
+## Architecture in one paragraph
 
-```
-frontend/                 React + Vite app (run commands from here)
-  src/App.tsx             Shell + hash routing (#overview, #planner, #connections, #playground[/<project>/<step>]) + Playground dock
-  src/pages/              Overview (metrics), Planner (calendar + Ideas inbox), Playground (projects), Connections (sign-in + connect)
-  src/pages/playground/   Production: Script, Shots (breakdown), Storyboard (generation pending), Visual3D (references + blockouts).
-                          Studio: Direct (direction + references + recording + transcript + music + beat plan), Build. Both: Edit (editor iframe)
-  src/components/         GoogleAccount, YouTube/Social connection, per-platform overviews, ComputerHelper (helper download + devices), ui
-  src/data/               supabase client, connector helpers, video job queue, projects, tracks (steps per track), plan (calendar days, upload matching),
-                          transcript lines, app-server session + uploads, metric math (+ tests)
-  src/storyboard/         composition.ts: storyboard -> HyperFrames HTML + validation (seeds the editor). Shared with the worker:
-                          no imports, erasable TypeScript only (Node runs it with type stripping)
-worker/                   Railway app service (Node 24, runs .ts directly)
-  index.ts                starts server.ts + the job loop: claim_video_job() -> breakdown | script -> done/failed
-  transcribe.ts           Studio recording: 16 kHz speech for the creator's computer, then whisper.json -> transcript.json + 1080p working copy (ffmpeg)
-  server.ts               site, Supabase-cookie session, per-project HyperFrames Studio, references, Studio media uploads, Blender bridge API
-  breakdown.ts            Claude API shot breakdown (structured output)
-  mcp.ts                  MCP server at /mcp for the creator's Claude / Codex (OAuth via Supabase) + upload links
-  project-files.ts        project folders, ownership, composition and breakdown helpers shared by server.ts and mcp.ts
-  schemas.ts              the breakdown JSON schema (worker Claude call + MCP tools)
-  script.ts               Claude API script generation (prompts/script.md, from Content Hub V2)
-  prompts/                shot-breakdown skill adapted for the app + its reference files; MCP guides (mcp-breakdown, composition, blockout, studio)
-bridge/                   Helper the creator downloads (zip built per device by server.ts): creator_bridge.py (claims blockout + transcribe jobs),
-                          blockout.py (Blender), transcribe.py (whisper.cpp; also served at /kit/transcribe.py for Claude Code)
-supabase/
-  functions/              youtube-connector, instagram-connector, tiktok-connector, _shared
-  migrations/             connection + OAuth state tables, video_jobs queue + renders bucket, projects + bridge_devices, plan_items (RLS)
-  tests/                  SQL boundary tests
-plugin/                   Claude Code + Codex plugin: .mcp.json pointing at /mcp, thin skills (script, shot-breakdown, composition, blockout, studio-video)
-docs/                     Supabase auth + connector setup notes (from Creator_OS), mcp-setup.md
-```
+React + TS + Vite frontend (`frontend/`, hash routing in `App.tsx`) → one Railway service `worker` (Node 24 runs `.ts` directly) that serves the built site, a per-project HyperFrames Studio (pinned **0.8.134**) at `/studio/<project>/`, the `/bridge/*` API for the PC helper, the MCP server at `/mcp`, and a job loop over `video_jobs`. Supabase is the backend (Auth, Postgres + RLS, Edge Function connectors). Project files live on the `/data` volume (no backup). Creators' own Claude/Codex generate via MCP (`worker/mcp.ts` + `plugin/`); playbooks are served by `get_guide` from `worker/prompts/`. `frontend/src/storyboard/composition.ts` is shared with the worker: no imports, erasable TS only. Full map, deploy vars and known leftovers: [docs/architecture.md](docs/architecture.md).
 
 ## Commands
 
-From `frontend/`: `npm run dev` (http://127.0.0.1:5173), `npm run build` (typecheck + build), `npm test` (vitest, covers frontend and Edge Function core logic).
+| Where | Command |
+|---|---|
+| `frontend/` | `npm run dev` (:5173, proxies `/api`, `/studio` to :8787) · `npm run build` · `npm test` (vitest) · `npx vitest run <file>` · `npm run test:e2e` (Playwright, ports 15173/18787, isolated Postgres) |
+| `worker/` | `npm start` (:8787 + live job loop) · `npm test` (all `*.test.ts`; start the disposable Postgres container first) · `node --test <file>.test.ts` |
+| repo root | Deploy: `railway up --service worker` · logs: `railway logs --service worker` |
+| Supabase | `supabase link --project-ref siacpdaiovnliamhorrf`, then `supabase functions deploy <name>` |
 
-Backend: `supabase link --project-ref siacpdaiovnliamhorrf` once, then `supabase functions deploy <name>`. Server secrets (Google/TikTok/Instagram client secrets, `*_TOKEN_ENCRYPTION_KEY`, `*_APP_ORIGINS`) live in Supabase function secrets, never in `VITE_*` vars. See `supabase/functions/.env.example`.
+## Reference docs
 
-App service (worker): deploy from the repo root with `railway up --service worker` (service var `RAILWAY_DOCKERFILE_PATH=worker/Dockerfile`). Railway variables: `SUPABASE_URL`, `SUPABASE_SECRET_KEY` (Supabase secret / service-role key), `ANTHROPIC_API_KEY` (or `ANTHROPIC_BASE_URL` + `ANTHROPIC_AUTH_TOKEN` + `CLAUDE_MODEL` for OpenRouter), and `VITE_SUPABASE_URL` + `VITE_SUPABASE_PUBLISHABLE_KEY` (build args for the site). Needs a volume mounted at `/data` and a public domain. Logs: `railway logs --service worker`.
-
-Worker tests: `npm test` in `worker/` (MCP contract test, Node's test runner; one test runs `hyperframes check`).
-
-Local: `npm start` in `worker/` runs the app server on :8787 and the job loop against the live queue; `npm run dev` in `frontend/` proxies `/api`, `/studio` and the Studio's assets to it.
-
-## Known leftovers
-
-- `worker/server.ts` deep-imports `hyperframes/dist/studioServer-PXNJXHMV.js`. Bump that file name whenever the pinned HyperFrames version changes.
-- `frontend/public/studio-theme.css` reskins the Studio by overriding its CSS tokens (`--color-*`, `--radius-*`, `--font-sans`). Re-check the token names on a HyperFrames bump.
-- Railway volumes have no automatic backup. Project folders (edits, footage, references, blockouts) live only on `/data`.
+- [docs/decisions.md](docs/decisions.md): full dated decision log (stack, hosting, HyperFrames, tracks, files, transcription, MCP)
+- [docs/architecture.md](docs/architecture.md): directory map, deploy/env details, known leftovers (HyperFrames bump checklist)
+- [docs/mcp-setup.md](docs/mcp-setup.md) · [docs/supabase-setup.md](docs/supabase-setup.md)
