@@ -66,7 +66,7 @@ const trendingFrom = (d: Related, keyword: string): Trending[] => {
 const DAYS: Record<string, number> = { s: 1 / 86400, m: 1 / 1440, min: 1 / 1440, h: 1 / 24, d: 1, w: 7, wk: 7, mo: 30, y: 365, yr: 365 };
 const perDay = (v: Video) => { const m = v.age.match(/(\d+)\s?(mo|min|yr|wk|s|m|h|d|w|y)/); return v.views / (m ? Math.max(1, Number(m[1]) * DAYS[m[2]]) : 365); };
 // The same search on Google Trends (public). Firecrawl's own explore links (trends.firecrawl.dev) sit behind a Vercel login.
-const googleTrends = (q: string, o: Opts) => `https://trends.google.com/trends/explore?${new URLSearchParams({ q, date: o.time, ...(o.geo ? { geo: o.geo } : {}), ...(o.property ? { gprop: o.property } : {}) })}`;
+const googleTrends = (q: string, o: Opts) => `https://trends.google.com/trends/explore?${new URLSearchParams({ q, date: o.time, ...(o.geo ? { geo: o.geo } : {}), ...(o.property !== 'web' ? { gprop: o.property } : {}) })}`;
 const tone = (s: number) => s >= 70 ? 'good' : s >= 50 ? 'mid' : 'low';
 
 function Research() {
@@ -159,7 +159,7 @@ function Research() {
       <label className="kr-q"><MagnifyingGlass size={18} aria-hidden/><input value={q} onChange={e => setQ(e.target.value)} placeholder="Topics, comma separated (up to 6)" aria-label="Topics" disabled={acct?.live === false}/></label>
       <select aria-label="Time range" value={opts.time} onChange={e => setOpts({ ...opts, time: e.target.value })}><option value="now 7-d">Past 7 days</option><option value="today 1-m">Past 30 days</option><option value="today 3-m">Past 90 days</option><option value="today 12-m">Past 12 months</option></select>
       <select aria-label="Country" value={opts.geo} onChange={e => setOpts({ ...opts, geo: e.target.value })}><option value="US">United States</option><option value="IN">India</option><option value="GB">United Kingdom</option><option value="">Worldwide</option></select>
-      <select aria-label="Searches on" value={opts.property} onChange={e => setOpts({ ...opts, property: e.target.value })}><option value="youtube">YouTube</option><option value="">Web</option><option value="news">News</option></select>
+      <select aria-label="Searches on" value={opts.property} onChange={e => setOpts({ ...opts, property: e.target.value })}><option value="youtube">YouTube</option><option value="web">Web</option><option value="news">News</option></select>
       <Button className="primary" disabled={!acct?.live || !parseSeeds(q).length || loading}>Research</Button>
     </form>}
 
