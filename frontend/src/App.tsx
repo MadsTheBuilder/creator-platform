@@ -8,7 +8,7 @@ import { Connections } from './pages/Connections';
 import { Playground } from './pages/Playground';
 import { isStep, stepIn, stepsFor, type Step, type Track } from './data/tracks';
 import { Planner } from './pages/Planner';
-import { Radar } from './pages/Radar';
+import { Trends } from './pages/Research';
 import { Style } from './pages/Style';
 // Modules without a route are on the roadmap (see CLAUDE.md) and render as "Soon".
 const nav=[
@@ -82,7 +82,7 @@ export function App(){
         {route==='Overview'?<Overview search={search} onConnections={()=>navigate('Connections')}/>
           :route==='Planner'?<Planner onOpenProject={openProject} onConnections={()=>navigate('Connections')}/>
           :route==='Style'?<Style onConnections={()=>navigate('Connections')}/>
-          :route==='Trends'?<Radar topic={loc.topic} onTopic={topic=>go({route:'Trends',topic})} onConnections={()=>navigate('Connections')}/>
+          :route==='Trends'?<Trends topic={loc.topic} onTopic={topic=>go({route:'Trends',topic})} onConnections={()=>navigate('Connections')}/>
           :playground?<Playground projectId={loc.project} step={loc.step} onOpen={openProject} onProject={p=>setOpen(p&&{id:p.id,track:p.track})} onConnections={()=>navigate('Connections')}/>
           :<Connections/>}
         </div>

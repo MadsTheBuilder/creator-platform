@@ -11,6 +11,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 // every HyperFrames release, so bump it together with the pinned version (0.8.134).
 import { createStudioServer } from 'hyperframes/dist/studioServer-PXNJXHMV.js';
 import { parseStoryboard } from '../frontend/src/storyboard/composition.ts';
+import { mountFirecrawl } from './firecrawl.ts';
 import { guestSession } from './guest.ts';
 import { JobError } from './job-error.ts';
 import { mountMcp } from './mcp.ts';
@@ -29,12 +30,14 @@ type Shot = Record<string, unknown>;
 export function startServer(db: SupabaseClient, port: number) {
   // Access token -> creator id, re-checked with Supabase every few minutes.
   const users = new Map<string, { id: string; until: number }>();
+  const guests = new Set<string>();   // ids of the shared guest account (app_metadata.guest), learned at sign-in
   async function userFor(token: string | undefined) {
     if (!token) return null;
     const hit = users.get(token);
     if (hit && hit.until > Date.now()) return hit.id;
     const { data, error } = await db.auth.getUser(token);
     if (error || !data.user) { users.delete(token); return null; }
+    if (data.user.app_metadata?.guest === true) guests.add(data.user.id);
     users.set(token, { id: data.user.id, until: Math.min(tokenExpiry(token), Date.now() + 5 * 60_000) });
     return data.user.id;
   }
@@ -257,6 +260,9 @@ export function startServer(db: SupabaseClient, port: number) {
   app.post('/api/open-in-desktop', c => c.json({ opened: false, reason: 'handoff-unavailable' }));
   app.get('/api/open-in-desktop', c => c.json({ available: false, handoff: false, downloadUrl: null }));
   app.get('/api/assets/global', c => c.json({ assets: [] }));
+
+  // Trends › Keyword research: the site's Firecrawl key, with a daily allowance for the guest.
+  mountFirecrawl(app, user => guests.has(user));
 
   app.all('/api/projects/:id', c => toStudio(c, c.req.param('id')));
   app.all('/api/projects/:id/*', c => toStudio(c, c.req.param('id')));

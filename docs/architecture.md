@@ -51,6 +51,8 @@ Guest account (`/#guest`, `worker/guest.ts`):
 - Unset `GUEST_EMAIL` to turn the link off.
 - After changing the connectors, deploy `youtube-connector`, `instagram-connector` and `tiktok-connector`: they refuse the guest.
 
+Keyword research (Trends › `#trends/research`, `worker/firecrawl.ts`): `GET /api/firecrawl/credits` and `POST /api/firecrawl/scrape` (Trends and YouTube-results calls only) with the site's `FIRECRAWL_API_KEY`; the guest gets `GUEST_FIRECRAWL_DAILY` credits a day (default 300).
+
 Worker tests: `npm test` in `worker/` (MCP contract test, Node's test runner; one test runs `hyperframes check`).
 
 Local: `npm start` in `worker/` runs the app server on :8787 and the job loop against the live queue; `npm run dev` in `frontend/` proxies `/api`, `/studio` and the Studio's assets to it.

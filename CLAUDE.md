@@ -11,7 +11,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 | # | Module | State | Details |
 |---|--------|-------|---------|
 | 1 | Analytics | Built: Google sign-in, YouTube/IG/TikTok connect, metrics Overview | [youtube-connector](docs/youtube-connector.md), [social connectors](docs/social-connector-implementation.md) |
-| 2 | Trends & News | Radar (topic-radar port): weekly ideas scan + daily watch of saved ideas, AI step recorded and reviewable over MCP; "Add to Planner" links an idea to a planned video the creator's Claude can outline (`save_outline`). Run 4 done on the live DB. The 8-phase build was removed | [decisions](docs/decisions.md) 2026-10-07/08 |
+| 2 | Trends & News | Keyword research (fireIQ port, Firecrawl, `#trends/research`) beside Radar (topic-radar port): weekly ideas scan + daily watch of saved ideas, AI step recorded and reviewable over MCP; "Add to Planner" links an idea to a planned video the creator's Claude can outline (`save_outline`). Run 4 done on the live DB. The 8-phase build was removed | [decisions](docs/decisions.md) 2026-10-07/08 |
 | 3 | Planner | Built: `plan_items`, month grid, agenda, Ideas inbox, posted-matching | [decisions](docs/decisions.md) |
 | 4 | Script → Storyboard | Script + shot breakdown built; Storyboard (after 3D visual) lays the blockout out shot by shot: frames via ffmpeg, `make_storyboard` over MCP | [decisions](docs/decisions.md) 2026-10-08 |
 | 5 | 3D Previs | Blender blockouts via the paired PC helper (`bridge/`); AI video step (prompts from the blockout, takes via the creator's own Higgsfield) deployed 2026-10-08 (`0df0f2f`), not yet run against a real Higgsfield account | [decisions](docs/decisions.md) |
