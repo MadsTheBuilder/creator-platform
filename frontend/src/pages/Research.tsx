@@ -147,7 +147,7 @@ function Research() {
   return <div className="kr">
     {acct && (acct.live
       ? <p className="muted kr-acct">Live research on Firecrawl{acct.guestLeft != null ? ` · shared guest account: ${acct.guestLeft.toLocaleString()} credits left today` : acct.remaining != null ? ` · ${acct.remaining.toLocaleString()} credits left` : ''}. A topic costs about 5 credits, a chart 5, a keyword’s videos 2, a set of titles about 5. Repeats are free (cached in this browser).</p>
-      : <Notice><span><strong>Sample data.</strong> You’re exploring fireIQ’s saved run for “claude code”. {acct.reason}</span></Notice>)}
+      : <Notice><span><strong>Sample data, search is off.</strong> You’re exploring fireIQ’s saved run for “claude code”. {acct.reason} Searching your own topics turns on once live research is available.</span></Notice>)}
     {status && <div className="notice" role="status">{status}</div>}
 
     <div className="platform-tabs" role="group" aria-label="Research">

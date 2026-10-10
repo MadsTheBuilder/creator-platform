@@ -26,7 +26,8 @@ export async function account(): Promise<Account> {
     const r = await fetch(`${API}/credits`);
     const j = await r.json().catch(() => ({}));
     if (r.status === 401) return { live: false, reason: 'Sign in to research your own topics.' };
-    if (!r.ok) return { live: false, reason: j.error ?? `The research server answered ${r.status}.` };
+    if (r.status === 503) return { live: false, reason: j.error ?? 'Keyword research is not set up on this site.' };
+    if (!r.ok) return { live: false, reason: 'The research server is not answering here.' };
     return { live: true, remaining: j.remaining ?? null, guestLeft: j.guest_left_today ?? null };
   } catch { return { live: false, reason: 'Could not reach the research server.' }; }
 }
